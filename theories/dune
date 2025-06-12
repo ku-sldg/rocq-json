@@ -1,0 +1,12 @@
+; This file was generated from `meta.yml`, please do not edit manually.
+; Follow the instructions on https://github.com/coq-community/templates to regenerate.
+
+(include_subdirs qualified)
+
+(coq.theory
+ (name RocqJSON)
+ (package rocq-json)
+ 
+ 
+ (synopsis "A Rocq JSON Library, built with automation and extractability in mind"))
+

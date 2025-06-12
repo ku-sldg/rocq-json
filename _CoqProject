@@ -1,0 +1,2 @@
+-R _build/default/theories RocqJSON
+-I _build/install/default/lib
