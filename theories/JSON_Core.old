@@ -1,0 +1,153 @@
+From RocqCandy Require Import All.
+From RocqJSON Require Import JSON JSON_Error_Strings.
+
+Open Scope string_scope.
+
+Definition type_sep : string := "_".
+Definition type_string_constant : string := "TYPE".
+Definition body_string_constant : string := "BODY".
+
+Definition noArgConstructor_to_JSON (type_name : string) (cons_name : string) : JSON := 
+  JSON_Object [((type_name ++ type_sep ++ type_string_constant), JSON_String cons_name)]. 
+
+Definition oneArgConstructor_to_JSON (type_name : string) (cons_name : string) (inner:JSON) : JSON := 
+    JSON_Object [
+      ((type_name ++ type_sep ++ type_string_constant), JSON_String cons_name);
+      ((type_name ++ type_sep ++ body_string_constant), inner)
+    ].
+
+Definition multiArgConstructor_to_JSON (type_name : string) (cons_name : string) (ls:list JSON) : JSON := 
+    JSON_Object [
+      ((type_name ++ type_sep ++ type_string_constant), JSON_String cons_name);
+      ((type_name ++ type_sep ++ body_string_constant), (JSON_Array ls))
+    ].
+
+Definition constructor_to_JSON (type_name : string) (cons_name : string) (ls:list JSON) : JSON := 
+  match ls with 
+  | [] => noArgConstructor_to_JSON type_name cons_name 
+  | [v] => oneArgConstructor_to_JSON type_name cons_name v 
+  | _ => multiArgConstructor_to_JSON type_name cons_name ls
+  end.
+
+Definition constructor_body_from_JSON_gen (type_name:string) (js:JSON) 
+    : list JSON :=
+  match (JSON_get_Object (type_name ++ type_sep ++ body_string_constant) js) with
+  | res (JSON_Array ls) => ls  (* 2+ constructor args case *)
+  | res jv => [jv]             (* 1 arg case *)
+  | err _ => nil                   (* 0 args case *)
+  end.
+
+Definition from_JSON_gen {A:Type} (type_name:string) 
+  (cmap: (Map string (JSON -> (Result A string)))) 
+    : JSON -> Result A string := 
+  fun js => 
+    match (JSON_get_Object (type_name ++ type_sep ++ type_string_constant) js) as m' return m' = (JSON_get_Object (type_name ++ type_sep ++ type_string_constant) js) -> Result A string with
+    | res (JSON_String cons_name) =>
+      match cmap ![ cons_name ] with 
+      | Some f => fun Heq => f js
+      | None => fun _ => err err_str_json_unrecognized_constructor
+      end
+    | res _ => fun _ => err err_str_json_no_constructor_name_string
+    | err e => fun _ => err e
+    end eq_refl.
+
+Definition constructor_from_JSON {A:Type} (type_name:string) 
+  (f:(list JSON) -> Result A string) : (JSON -> Result A string) := 
+(fun js => f (constructor_body_from_JSON_gen type_name js)).
+
+Definition constructor_body_from_JSON_gen_rec {top_js:JSON} (type_name:string) 
+    : { ls : list JSON | (forall y : JSON, In y ls -> JSON_depth y < JSON_depth top_js) }.
+destruct (JSON_get_Object (type_name ++ type_sep ++ body_string_constant) top_js) eqn:?.
+- (* no body, must be 0 args *) 
+  exists nil; ff.
+- destruct j. 
+  * (* object, so 1 args case *) 
+    exists ([JSON_Object m]); simpl in *.
+    intuition; subst.
+    eapply json_get_object_result_always_smaller; eauto.
+  * (* array so multiple args *) 
+    exists l; simpl in *; intuition.
+    eapply json_get_object_result_always_smaller in Heqr; eauto.
+    eapply PeanoNat.Nat.lt_trans; [ | eauto].
+    eapply json_all_array_elements_smaller; eauto.
+  * (* string so 1 arg *) 
+    exists ([JSON_String s]); simpl in *.
+    intuition; subst.
+    eapply json_get_object_result_always_smaller; eauto.
+  * (* boolean so 1 arg *) 
+    exists ([JSON_Boolean b]); simpl in *.
+    intuition; subst.
+    eapply json_get_object_result_always_smaller; eauto.
+Defined.
+
+Definition constructor_from_JSON_rec {A:Type} {top_js : JSON} (type_name:string) 
+  (f: { ls : list JSON | (forall y : JSON, In y ls -> JSON_depth y < JSON_depth top_js) } -> Result A string) : Result A string := 
+f (@constructor_body_from_JSON_gen_rec top_js type_name).
+
+Theorem from_JSON_gen_constructor_to_JSON_works : forall {A : Type} tname cname ls jsmap (f : JSON -> Result A string) v,
+  map_get cname jsmap = Some f ->
+  f (constructor_to_JSON tname cname ls) = v ->
+  from_JSON_gen tname jsmap (constructor_to_JSON tname cname ls) = v.
+Proof.
+  induction jsmap; simpl in *; intuition; try congruence.
+  repeat jsonifiable_hammer.
+  - rewrite String.eqb_eq in *; subst; jsonifiable_hammer; 
+    unfold constructor_to_JSON, noArgConstructor_to_JSON, 
+      oneArgConstructor_to_JSON, multiArgConstructor_to_JSON,
+      from_JSON_gen in *; 
+    simpl in *; jsonifiable_hammer;
+    try rewrite String.eqb_eq in *; subst; jsonifiable_hammer;
+    try rewrite String.eqb_neq in *; jsonifiable_hammer.
+  - rewrite String.eqb_neq in *; subst; jsonifiable_hammer; 
+    unfold constructor_to_JSON, noArgConstructor_to_JSON, 
+      oneArgConstructor_to_JSON, multiArgConstructor_to_JSON,
+      from_JSON_gen in *; 
+    simpl in *; jsonifiable_hammer;
+    try rewrite String.eqb_eq in *; subst; jsonifiable_hammer;
+    try rewrite String.eqb_neq in *; jsonifiable_hammer.
+Qed.
+
+Lemma string_app_helper : forall s1 s2 s3,
+  s1 ++ s2 = s1 ++ s3 <->
+  s2 = s3.
+Proof.
+  induction s1; simpl in *; intuition; eauto.
+  - invc H; eapply IHs1; eauto.
+  - subst; eauto.
+Qed.
+
+Theorem constructor_from_JSON_to_JSON_works : forall {A : Type} tname cname ls (f : list JSON -> Result A string) v,
+  f ls = v ->
+  ~ (exists v', ls = [JSON_Array v']) ->
+  constructor_from_JSON tname f (constructor_to_JSON tname cname ls) = v.
+Proof.
+  intuition; unfold constructor_from_JSON, constructor_body_from_JSON_gen, constructor_to_JSON,
+    noArgConstructor_to_JSON, oneArgConstructor_to_JSON,
+    multiArgConstructor_to_JSON in *.
+  destruct ls.
+  - (* ls = nil *) 
+    repeat rewrite String.eqb_eq in *; subst; jsonifiable_hammer;
+    repeat rewrite String.eqb_neq in *; subst; jsonifiable_hammer;
+    try rewrite String.eqb_eq in *; unfold type_string_constant,
+    body_string_constant in *;
+    try rewrite string_app_helper in *; try congruence.
+  - destruct ls. 
+    * (* ls = [j] *)
+      jsonifiable_hammer;
+      repeat rewrite String.eqb_eq in *; subst; jsonifiable_hammer;
+      repeat rewrite String.eqb_neq in *; subst; jsonifiable_hammer;
+      try rewrite String.eqb_eq in *; unfold type_string_constant,
+      body_string_constant in *;
+      try rewrite string_app_helper in *; try congruence;
+      exfalso; eauto.
+    * (* ls = [j] *)
+      jsonifiable_hammer;
+      repeat rewrite String.eqb_eq in *; subst; jsonifiable_hammer;
+      repeat rewrite String.eqb_neq in *; subst; jsonifiable_hammer;
+      try rewrite String.eqb_eq in *; unfold type_string_constant,
+      body_string_constant in *;
+      try rewrite string_app_helper in *; try congruence. 
+Qed.
+
+
+Close Scope string_scope.
