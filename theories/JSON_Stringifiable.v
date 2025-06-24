@@ -1,6 +1,5 @@
 From RocqJSON Require Import JSON_Type.
-From RocqCandy Require Export Stringifiable.
-From RocqCandy Require Import All.
+From RocqCandy Require Export All.
 
 Open Scope string_scope.
 
