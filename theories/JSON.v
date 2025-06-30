@@ -11,6 +11,16 @@ Class Jsonifiable (A : Type) := {
   canonical_jsonification : forall (a : A), from_JSON (to_JSON a) = res a
 }.
 
+Global Instance Stringifiable_Jsonifiable_A {A} `{Jsonifiable A} : Stringifiable A.
+ref (Build_Stringifiable _ 
+  (fun a => to_string (to_JSON a))
+  (fun s => js <- from_string s ;; from_JSON js)
+_).
+ff u; erewrite canonical_stringification in *; ff;
+erewrite canonical_jsonification in *; ff.
+Qed.
+
+(* The JSONIFIABLE Tactics *)
 Ltac2 Notation "simpl_json" :=
   unfold bind in *; simpl in *; intuition;
   repeat (try (rewrite canonical_jsonification in *);
