@@ -22,6 +22,17 @@ jobs:
           - 'rocq/rocq-prover:9.0'
       fail-fast: false
     steps:
+      - name: Restore Docker image from cache
+        id: docker-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.docker-cache
+          key: docker-image-${{ matrix.image }}
+      - name: Load Docker image from cache
+        if: steps.docker-cache.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p /tmp/.docker-cache
+          docker load -i /tmp/.docker-cache/image.tar || echo "No cached image to load."
       - uses: actions/checkout@v4
       - uses: coq-community/docker-coq-action@v1
         with:
@@ -33,6 +44,15 @@ jobs:
               opam config list; opam repo list; opam list
             endGroup
 
+
+      - name: Save Docker image to cache
+        if: steps.docker-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/.docker-cache
+          docker save ${{ matrix.image }} -o /tmp/.docker-cache/image.tar || echo "Failed to save image."
+        # Only save the image if it was not restored from cache
+        # The cache will be updated for future runs
+        # Note: actions/cache@v4 will automatically upload the cache at the end of the job
 
 # See also:
 # https://github.com/coq-community/docker-coq-action#readme

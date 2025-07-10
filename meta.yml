@@ -35,7 +35,7 @@ ci_extra_repos:
   - description: "KU-SLDG Packages"
     name: "ku-sldg/opam-repo"
     url: "https://github.com/ku-sldg/opam-repo.git"
-
+ci_cache_docker_images: true
 # dependencies:
 #   - description: '[Parsec](https://github.com/liyishuai/coq-parsec)'
 #     opam:
