@@ -140,6 +140,18 @@ Global Instance Jsonifiable_nat : Jsonifiable nat := {
   canonical_jsonification := fun n => eq_refl
 }.
 
+Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
+eapply Build_Jsonifiable with
+  (to_JSON   := fun l => JSON_Array (map to_JSON l))
+  (from_JSON := fun js => 
+                  match js with 
+                  | JSON_Array l => 
+                      result_map from_JSON l
+                  | _ => err (errStr_json_wrong_type "list" js)
+                  end).
+induction a; jsonifiable_hammer.
+Qed.
+
 (* The List JSONIFIABLE Class *)
 
 Definition map_serial_serial_to_JSON {A B : Type} `{Stringifiable A, Stringifiable B, DecEq A} (m : Map A B) : JSON :=
