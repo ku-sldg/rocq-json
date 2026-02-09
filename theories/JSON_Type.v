@@ -16,15 +16,18 @@ Definition depth_js_map (m: Map string JSON) (f:JSON -> nat) : nat :=
 Lemma depth_item_leq_array_max : forall (ls:list JSON) (f:JSON -> nat) (js:JSON),
   In js ls -> f js <= depth_js_array ls f.
 Proof.
-  induction ls; ff l;
-  find_eapply_lem_hyp (IHls f); ff l.
+  induction ls; ff with lia;
+  find_eapply_lem_hyp (IHls f).
+  unfold depth_js_array in *.
+  ff with lia.
 Qed.
 
 Lemma depth_item_leq_map_max : forall (m : Map string JSON) (f:JSON -> nat) (js:JSON),
   In js (map snd m) -> f js <= depth_js_map m f.
 Proof.
-  induction m; ff l;
-  find_eapply_lem_hyp (IHm f); ff l.
+  induction m; ff with lia;
+  find_eapply_lem_hyp (IHm f); 
+  unfold depth_js_map in *; ff with lia.
 Qed.
 
 Fixpoint JSON_depth (js:JSON) : nat := 
@@ -91,7 +94,9 @@ Definition map_eqb_eqb {A B} `{DecEq A} (dec_eq_b : IDecEq B) : IDecEq (Map A B)
     | _, _ => right _
     end);  try congruence;
   clear F; intros; 
-  destruct x, x0, x1; ff.
+  destruct x, x0, x1; ff;
+  try (left; ff; fail);
+  try (right; ff; fail).
 Defined.
 
 Definition list_eqb_eqb {A} (dec_eq_a : IDecEq A) : IDecEq (list A).

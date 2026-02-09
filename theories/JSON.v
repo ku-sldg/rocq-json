@@ -16,16 +16,17 @@ ref (Build_Stringifiable _
   (fun a => to_string (to_JSON a))
   (fun s => js <- from_string s ;; from_JSON js)
 _).
-ff u; erewrite canonical_stringification in *; ff;
+ff with u; erewrite canonical_stringification in *; ff;
 erewrite canonical_jsonification in *; ff.
 Qed.
 
 (* The JSONIFIABLE Tactics *)
-Ltac2 Notation "simpl_json" :=
+Ltac2 simpl_json0 () :=
   unfold bind in *; simpl in *; intuition;
   repeat (try (rewrite canonical_jsonification in *);
     try (rewrite canonical_stringification in *);
     simpl in *; intuition).
+Ltac2 Notation simpl_json := simpl_json0 ().
 
 Ltac2 Notation "solve_json" := 
   simpl_json; try congruence;
@@ -177,7 +178,7 @@ Lemma canonical_jsonification_map_serial_serial : forall {A B} `{Stringifiable A
   map_serial_serial_from_JSON (map_serial_serial_to_JSON m) = res m.
 Proof.
   intuition.
-  induction m; ff u; repeat (rewrite canonical_stringification in *); ff.
+  induction m; ff with u; repeat (rewrite canonical_stringification in *); ff.
 Qed.
 
 Global Instance jsonifiable_map_serial_serial (A B : Type) `{Stringifiable A, DecEq A, Stringifiable B} : Jsonifiable (Map A B) :=
@@ -202,8 +203,8 @@ eapply Build_Jsonifiable with (
                             v' <- from_JSON v ;;
                             res (k', v')) m
                     | _ => err (errStr_map_from_json)
-                    end));
-induction a; ff u; simpl_json; ff.
+                    end)).
+induction a; ff with simpl_json.
 Defined.
 
 Close Scope string_scope.
