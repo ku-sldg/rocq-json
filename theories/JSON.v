@@ -141,6 +141,11 @@ Global Instance Jsonifiable_nat : Jsonifiable nat := {
   canonical_jsonification := fun n => eq_refl
 }.
 
+(* NOTE: This is commented out because it will override TC instances for
+Map A B, which is not what we want! A possible (and maybe optimal solution) 
+would be to have the Map's be behind module interfaces and then the Jsonifiable
+instance shouldn't apply anymore
+
 Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
 eapply Build_Jsonifiable with
   (to_JSON   := fun l => JSON_Array (map to_JSON l))
@@ -151,7 +156,7 @@ eapply Build_Jsonifiable with
                   | _ => err (errStr_json_wrong_type "list" js)
                   end).
 induction a; jsonifiable_hammer.
-Qed.
+Qed. *)
 
 (* The List JSONIFIABLE Class *)
 
