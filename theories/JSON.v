@@ -16,16 +16,17 @@ ref (Build_Stringifiable _
   (fun a => to_string (to_JSON a))
   (fun s => js <- from_string s ;; from_JSON js)
 _).
-ff u; erewrite canonical_stringification in *; ff;
+ff with u; erewrite canonical_stringification in *; ff;
 erewrite canonical_jsonification in *; ff.
 Qed.
 
 (* The JSONIFIABLE Tactics *)
-Ltac2 Notation "simpl_json" :=
+Ltac2 simpl_json0 () :=
   unfold bind in *; simpl in *; intuition;
   repeat (try (rewrite canonical_jsonification in *);
     try (rewrite canonical_stringification in *);
     simpl in *; intuition).
+Ltac2 Notation simpl_json := simpl_json0 ().
 
 Ltac2 Notation "solve_json" := 
   simpl_json; try congruence;
@@ -140,6 +141,23 @@ Global Instance Jsonifiable_nat : Jsonifiable nat := {
   canonical_jsonification := fun n => eq_refl
 }.
 
+(* NOTE: This is commented out because it will override TC instances for
+Map A B, which is not what we want! A possible (and maybe optimal solution) 
+would be to have the Map's be behind module interfaces and then the Jsonifiable
+instance shouldn't apply anymore
+
+Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
+eapply Build_Jsonifiable with
+  (to_JSON   := fun l => JSON_Array (map to_JSON l))
+  (from_JSON := fun js => 
+                  match js with 
+                  | JSON_Array l => 
+                      result_map from_JSON l
+                  | _ => err (errStr_json_wrong_type "list" js)
+                  end).
+induction a; jsonifiable_hammer.
+Qed. *)
+
 (* The List JSONIFIABLE Class *)
 
 Definition map_serial_serial_to_JSON {A B : Type} `{Stringifiable A, Stringifiable B, DecEq A} (m : Map A B) : JSON :=
@@ -165,7 +183,7 @@ Lemma canonical_jsonification_map_serial_serial : forall {A B} `{Stringifiable A
   map_serial_serial_from_JSON (map_serial_serial_to_JSON m) = res m.
 Proof.
   intuition.
-  induction m; ff u; repeat (rewrite canonical_stringification in *); ff.
+  induction m; ff with u; repeat (rewrite canonical_stringification in *); ff.
 Qed.
 
 Global Instance jsonifiable_map_serial_serial (A B : Type) `{Stringifiable A, DecEq A, Stringifiable B} : Jsonifiable (Map A B) :=
@@ -190,8 +208,8 @@ eapply Build_Jsonifiable with (
                             v' <- from_JSON v ;;
                             res (k', v')) m
                     | _ => err (errStr_map_from_json)
-                    end));
-induction a; ff u; simpl_json; ff.
+                    end)).
+induction a; ff with simpl_json.
 Defined.
 
 Close Scope string_scope.

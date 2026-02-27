@@ -32,10 +32,18 @@ Definition errStr_json_from_pair := "Error converting pair from JSON".
 Opaque errStr_json_from_pair.
 
 (* The JSONIFIABLE Class for Stringifiable types *)
-Definition errStr_json_key_not_found (key : string) (js : JSON) := ("JSON: Key: '" ++ key ++ "' not found in JSON: '" ++ (to_string js) ++ "'").
+Definition str_json_key_prefix := "JSON: Key: '".
+Opaque str_json_key_prefix.
+Definition str_not_found := " not found in JSON: '".
+Opaque str_not_found.
+Definition str_had_wrong_type := " had the wrong type in JSON: '".
+
+Definition errStr_json_key_not_found (key : string) (js : JSON) := 
+ str_json_key_prefix ++ key ++ str_not_found ++ (to_string js) ++ "'".
 Opaque errStr_json_key_not_found.
 
-Definition errStr_json_wrong_type (key : string) (js : JSON) := ("JSON: Key: '" ++ key ++ "' had the wrong type in JSON: '" ++ (to_string js) ++ "'").
+Definition errStr_json_wrong_type (key : string) (js : JSON) := 
+  str_json_key_prefix ++ key ++ str_had_wrong_type ++ (to_string js) ++ "'".
 Opaque errStr_json_wrong_type.
 
 Definition err_str_json_nat := "Error converting JSON to nat: JSON was not a nat".
