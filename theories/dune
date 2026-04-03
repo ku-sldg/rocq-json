@@ -6,7 +6,13 @@
 (coq.theory
  (name RocqJSON)
  (package rocq-json)
- 
- 
- (synopsis "A Rocq JSON Library, built with automation and extractability in mind"))
+ (theories rocq_json_derivers)
+ (synopsis
+  "A Rocq JSON Library, built with automation and extractability in mind"))
 
+(install
+ (files
+  (glob_files
+   (*.elpi with_prefix coq/user-contrib/elpi/apps/derive/elpi/)))
+ (section lib_root)
+ (package rocq-json))

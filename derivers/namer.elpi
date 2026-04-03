@@ -1,0 +1,54 @@
+namespace derive.namer {
+
+  func bit_to_term term, term, int -> term.
+  bit_to_term FalseTerm _ 0 FalseTerm :- !.
+  bit_to_term _ TrueTerm _ TrueTerm.
+
+  func int_to_ascii_term term, term, term, int -> term.
+  int_to_ascii_term False True AsciiG N (app [AsciiG, Bool0, Bool1, Bool2, Bool3, Bool4, Bool5, Bool6, Bool7]) :-
+    B0 is N mod 2         , B1 is (N div 2) mod 2,
+    B2 is (N div 4) mod 2 , B3 is (N div 8) mod 2,
+    B4 is (N div 16) mod 2, B5 is (N div 32) mod 2,
+    B6 is (N div 64) mod 2, B7 is (N div 128) mod 2,
+    bit_to_term False True B0 Bool0 , bit_to_term False True B1 Bool1,
+    bit_to_term False True B2 Bool2 , bit_to_term False True B3 Bool3,
+    bit_to_term False True B4 Bool4 , bit_to_term False True B5 Bool5,
+    bit_to_term False True B6 Bool6 , bit_to_term False True B7 Bool7.
+
+  func string_to_coq_string_loop term, term, term, term, string, int, term -> term.
+  string_to_coq_string_loop _ _ _ _ _ -1 Acc Acc :- !.
+  string_to_coq_string_loop False True AsciiG StrG S I Acc Result :-
+    int_to_ascii_term False True AsciiG (rhc (substring S I 1)) AsciiTerm,
+    string_to_coq_string_loop False True AsciiG StrG S { calc (I - 1)} (app [StrG, AsciiTerm, Acc]) Result.
+
+  func string_to_coq_string_term string -> term.
+  string_to_coq_string_term S CoqString :-
+    coq.locate "Corelib.Init.Datatypes.false" GRfalse,
+    coq.locate "Corelib.Init.Datatypes.true" GRtrue,
+    coq.locate "Stdlib.Strings.Ascii.Ascii" GRAscii,
+    coq.locate "Stdlib.Strings.String.EmptyString" GREmptyString,
+    coq.locate "Stdlib.Strings.String.String" GRString,
+    Len is size S,
+    if (Len == 0)
+      (CoqString = global GREmptyString)
+      (
+        I is Len - 1,
+        string_to_coq_string_loop
+          (global GRfalse) (global GRtrue) (global GRAscii)
+          (global GRString) S I (global GREmptyString) CoqString
+      ).
+
+  func main gref, string -> list prop.
+  main GR Prefix C :- std.do! [
+    coq.gref->id GR Tname,
+    derive.namer.string_to_coq_string_term Tname ResStr,
+    coq.locate "Stdlib.Strings.String.string" StrTy,
+    coq.ensure-fresh-global-id (Prefix ^ "namer") FName,
+    coq.env.add-const FName ResStr (global StrTy) @transparent! _,
+
+    % coq.elpi.accumulate _ "derive.namer.db" (clause _ _ Clause),
+    coq.elpi.accumulate _ "derive.namer.db" (clause _ _ (namer-done GR)),
+    C = [namer-done GR]
+  ].
+
+}
