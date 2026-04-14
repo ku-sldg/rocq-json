@@ -1,0 +1,70 @@
+From elpi.apps.derive.elpi Extra Dependency "derive_hook.elpi" as derive_hook.
+From rocq_json_derivers Extra Dependency "jsonifiable.elpi" as jsonifiable.
+From elpi.apps.derive.elpi Extra Dependency "derive_synterp_hook.elpi" as derive_synterp_hook.
+
+From elpi Require Import elpi.
+From elpi Require Import derive.
+From elpi Require Import derive.std.
+
+From RocqJSON Require Import JSON JSON_Error_Strings.
+From Stdlib Require Import Lia.
+From Stdlib Require Import Wf_nat.
+
+Local Open Scope string_scope.
+
+(* ===== Database ===== *)
+Elpi Db derive.jsonifiable.db lp:{{
+  pred jsonifiable-done o:gref.
+}}.
+
+(* ===== Ltac1 tactics for Elpi to call ===== *)
+
+(* Solves JSON_depth sub < JSON_depth js obligations *)
+Ltac solve_json_depth := simpl; lia.
+
+(* Helper: solve the Fix_eq extensionality side-condition *)
+Ltac fix_eq_ext :=
+  intros;
+  repeat match goal with
+  | |- context [match ?x with _ => _ end] => destruct x
+  end;
+  reflexivity.
+
+(* Main canonical roundtrip proof tactic *)
+Ltac derive_jsonifiable_proof := idtac.
+
+(* ===== Step 1: Minimal test - just explore the Elpi environment ===== *)
+
+(* First, let's just load the file and see if it compiles *)
+Elpi Command derive.jsonifiable.
+Elpi Accumulate File derive_hook.
+Elpi Accumulate Db derive.jsonifiable.db.
+Elpi Accumulate File jsonifiable.
+Elpi Accumulate lp:{{
+  main [str I] :- !,
+    coq.locate I GR,
+    coq.gref->id GR Tname,
+    Prefix is Tname ^ "_",
+    derive.jsonifiable.main GR Prefix _.
+  main _ :- coq.error "Usage: derive.jsonifiable <object name>".
+}}.
+
+(* ===== Step 2: Debug query - inspect the inductive ===== *)
+
+(* Simple enum type to test with *)
+Inductive color := Red | Green | Blue.
+derive color.
+
+Elpi Query lp:{{
+  coq.locate "color" (indt Ind),
+  coq.env.indt Ind _IsInd ParNo UParNo _IndSort Kns KTs,
+  coq.say "color has" ParNo "params," UParNo "uniform params",
+  coq.say "constructors:" Kns,
+  coq.say "constructor types:" KTs,
+  (if (coq.env.recursive? Ind) (coq.say "is recursive: yes") (coq.say "is recursive: no"))
+}}.
+
+
+
+(* ===== Step 4: Run the derivation on color ===== *)
+Elpi derive.jsonifiable color.

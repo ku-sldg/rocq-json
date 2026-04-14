@@ -1,0 +1,425 @@
+/* Jsonifiable derivation for rocq-json                                      */
+/* Generates to_json, from_json, canonical_jsonification, and Jsonifiable    */
+/* typeclass instance for arbitrary inductive types.                         */
+
+namespace derive.jsonifiable {
+
+% ============================================================================
+% String helpers (adapted from namer.elpi)
+% ============================================================================
+
+func bit_to_term term, term, int -> term.
+bit_to_term FalseTerm _ 0 FalseTerm :- !.
+bit_to_term _ TrueTerm _ TrueTerm.
+
+func int_to_ascii_term term, term, term, int -> term.
+int_to_ascii_term False True AsciiG N (app [AsciiG, B0, B1, B2, B3, B4, B5, B6, B7]) :-
+  V0 is N mod 2,           bit_to_term False True V0 B0,
+  V1 is (N div 2) mod 2,   bit_to_term False True V1 B1,
+  V2 is (N div 4) mod 2,   bit_to_term False True V2 B2,
+  V3 is (N div 8) mod 2,   bit_to_term False True V3 B3,
+  V4 is (N div 16) mod 2,  bit_to_term False True V4 B4,
+  V5 is (N div 32) mod 2,  bit_to_term False True V5 B5,
+  V6 is (N div 64) mod 2,  bit_to_term False True V6 B6,
+  V7 is (N div 128) mod 2, bit_to_term False True V7 B7.
+
+func string_to_coq_string_loop term, term, term, term, string, int, term -> term.
+string_to_coq_string_loop _ _ _ _ _ -1 Acc Acc :- !.
+string_to_coq_string_loop False True AsciiG StrG S I Acc Result :-
+  int_to_ascii_term False True AsciiG (rhc (substring S I 1)) AsciiTerm,
+  string_to_coq_string_loop False True AsciiG StrG S {calc (I - 1)}
+    (app [StrG, AsciiTerm, Acc]) Result.
+
+func string_to_coq_string_term string -> term.
+string_to_coq_string_term S CoqString :-
+  coq.locate "Corelib.Init.Datatypes.false" GRfalse,
+  coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
+  coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAscii,
+  coq.locate "Stdlib.Strings.String.EmptyString" GREmptyString,
+  coq.locate "Stdlib.Strings.String.String"      GRString,
+  Len is size S,
+  if (Len == 0)
+    (CoqString = global GREmptyString)
+    (I is Len - 1,
+     string_to_coq_string_loop
+       (global GRfalse) (global GRtrue) (global GRAscii)
+       (global GRString) S I (global GREmptyString) CoqString).
+
+% ============================================================================
+% Type helpers
+% ============================================================================
+
+func json-ty -> term.
+json-ty T :- coq.locate "RocqJSON.JSON_Type.JSON" (indt GR), T = global (indt GR).
+
+func str-ty -> term.
+str-ty T :- coq.locate "Stdlib.Strings.String.string" (indt GR), T = global (indt GR).
+
+func nat-ty -> term.
+nat-ty T :- coq.locate "Corelib.Init.Datatypes.nat" (indt GR), T = global (indt GR).
+
+func bool-ty -> term.
+bool-ty T :- coq.locate "Corelib.Init.Datatypes.bool" (indt GR), T = global (indt GR).
+
+func list-ty term -> term.
+list-ty Elem (app [global (indt GR), Elem]) :-
+  coq.locate "Corelib.Init.Datatypes.list" (indt GR).
+
+func pair-ty term, term -> term.
+pair-ty A B (app [global (indt GR), A, B]) :-
+  coq.locate "Corelib.Init.Datatypes.prod" (indt GR).
+
+func result-ty term, term -> term.
+result-ty A E (app [global (indt GR), A, E]) :-
+  coq.locate "Result" (indt GR).
+
+% ============================================================================
+% Check if a type refers to the inductive being derived
+% ============================================================================
+
+pred is-self-reference i:inductive, i:term.
+is-self-reference Ind (global (indt Ind)) :- !.
+is-self-reference Ind (app [global (indt Ind) | _]) :- !.
+
+% ============================================================================
+% Build a typed Coq list: cons x1 (cons x2 ... nil) at type ElemTy
+% ============================================================================
+
+func build-coq-list term, list term -> term.
+build-coq-list ElemTy [] (app [global NilGR, ElemTy]) :-
+  coq.locate "Corelib.Init.Datatypes.nil" NilGR.
+build-coq-list ElemTy [H|T] (app [global ConsGR, ElemTy, H, Rest]) :-
+  coq.locate "Corelib.Init.Datatypes.cons" ConsGR,
+  build-coq-list ElemTy T Rest.
+
+% ============================================================================
+% Build: JSON_Object [("Tag", JSON_Array [arg1; ...])]
+% ============================================================================
+
+func build-tagged-object string, list term -> term.
+build-tagged-object Tag ArgJsons TaggedObj :-
+  json-ty JSONTy,
+  str-ty StrTy,
+  coq.locate "RocqJSON.JSON_Type.JSON_Object" (indc ObjGR),
+  coq.locate "RocqJSON.JSON_Type.JSON_Array"  (indc ArrGR),
+  coq.locate "Corelib.Init.Datatypes.pair"    (indc PairGR),
+  string_to_coq_string_term Tag TagStr,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  build-coq-list JSONTy ArgJsons ArgsList,
+  ArrayTerm = app [global (indc ArrGR), ArgsList],
+  PairTerm  = app [global (indc PairGR), StrTy, JSONTy, TagStr, ArrayTerm],
+  build-coq-list PairStrJsonTy [PairTerm] MapList,
+  TaggedObj = app [global (indc ObjGR), MapList].
+
+% ============================================================================
+% Phase 1: to_json
+% ============================================================================
+
+func to-json-branch-norec term, term, list term, list term -> term.
+to-json-branch-norec K _KTy Vars _VarTys Body :-
+  coq.safe-dest-app K (global (indc KI)) _,
+  coq.gref->id (indc KI) KName,
+  std.map Vars (v\ r\ r = {{ @to_JSON _ _ lp:v }}) ArgJsons,
+  build-tagged-object KName ArgJsons Body.
+
+func to-json-branch-rec inductive, term, term, term, list term, list term -> term.
+to-json-branch-rec Ind SelfRef K _KTy Vars VarTys Body :-
+  coq.safe-dest-app K (global (indc KI)) _,
+  coq.gref->id (indc KI) KName,
+  std.map2 Vars VarTys (v\ vty\ r\
+    if (is-self-reference Ind vty)
+      (r = app [SelfRef, v])
+      (r = {{ @to_JSON _ _ lp:v }})
+  ) ArgJsons,
+  build-tagged-object KName ArgJsons Body.
+
+% Non-recursive case: fun a => match a with ...
+build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
+  not (coq.env.recursive? Ind), !,
+  std.rev Params RevParams,
+  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  json-ty JSONTy,
+  @pi-decl `a` IndTy A\
+    coq.build-match A IndTy
+      (_\_\_\ r\ r = JSONTy)
+      to-json-branch-norec
+      (R A).
+
+% Recursive case: fix self a => match a with ...
+func build-to-json-term inductive, list term -> term.
+build-to-json-term Ind Params
+    {{ fix self (a : lp:IndTy) {struct a} : lp:JSONTy := lp:(R self a) }} :-
+  coq.env.recursive? Ind, !,
+  std.rev Params RevParams,
+  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  json-ty JSONTy,
+  @pi-decl `self` {{ lp:IndTy -> lp:JSONTy }} Self\
+  @pi-decl `a` IndTy A\
+    coq.build-match A IndTy
+      (_\_\_\ r\ r = JSONTy)
+      (to-json-branch-rec Ind Self)
+      (R Self A).
+
+% ============================================================================
+% Phase 2: from_json
+%
+% Count constructor args from the constructor's type term.
+% ============================================================================
+
+func count-ctor-args term -> int, list term.
+count-ctor-args (prod _ ArgTy Body) N [ArgTy|Rest] :- !,
+  pi x\ count-ctor-args (Body x) N1 Rest,
+  N is N1 + 1.
+count-ctor-args _ 0 [].
+
+% ============================================================================
+% build-ctor-body: build the match on the args0 list + bind chain.
+%
+% Builds:
+%   match args0 with
+%   | [] => err (too few args)      -- unless N=0, then nil => res K
+%   | ja :: jr => from_JSON ja >>= fun d => <recurse with jr, [d|acc]>
+%   ...eventually at N=0...
+%   | [] => res (K v1 ... vn)
+%   | _ => err (too many args)
+%
+% Parameters:
+%   K        : constructor
+%   N        : number of args remaining to decode
+%   ArgTys   : their Coq types
+%   Args0    : the current list-of-JSON variable (lambda-bound by caller)
+%   ErrTerm  : error term for arity mismatch
+%   AccRev   : decoded args so far (reversed)
+% ============================================================================
+
+func build-ctor-body constructor, int, list term, term, term, list term -> term.
+
+build-ctor-body K 0 [] Args0 ErrTerm AccRev Body :- !,
+  json-ty JSONTy,
+  list-ty JSONTy ListJSONTy,
+  std.rev AccRev Acc,
+  coq.mk-app (global (indc K)) Acc KApp,
+  coq.locate "res" (indc ResC),
+  % match Args0 with nil => res (K v1...vn) | cons _ _ => err (too many)
+  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+    [ app [global (indc ResC), _, KApp]
+    , fun `_` JSONTy (_\ fun `_` ListJSONTy (_\ ErrTerm))
+    ].
+
+build-ctor-body K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
+  N > 0, N1 is N - 1,
+  json-ty JSONTy,
+  list-ty JSONTy ListJSONTy,
+  coq.locate "bind" (const BindC),
+  % Introduce lambda vars for the list head and tail
+  @pi-decl `ja` JSONTy     JA\
+  @pi-decl `jr` ListJSONTy JR\
+  @pi-decl `dv` ArgTy      DV\
+    build-ctor-body K N1 ArgTys JR ErrTerm [DV|AccRev] (InnerBody JA JR DV),
+  % match Args0 with nil => err | cons ja jr => bind (from_JSON ja) (fun dv => inner)
+  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+    [ ErrTerm   % nil: too few args
+    , fun `ja` JSONTy     (ja\
+      fun `jr` ListJSONTy (jr\
+        app [global (const BindC), _, _, _,
+             {{ @from_JSON _ _ lp:ja }},
+             fun `dv` ArgTy (dv\ InnerBody ja jr dv)]))
+    ].
+
+% ============================================================================
+% build-dispatch: sumbool dispatch chain over constructors.
+%
+% For each constructor K with name "K":
+%   match string_eqb_OK_sumbool tag_str "K" with
+%   | left _ => <arm for K>
+%   | right _ => <rest of chain>
+%
+% TagStr, Args0 : lambda-bound vars passed in from the outer match.
+% ============================================================================
+
+func build-dispatch inductive, list constructor, term, term, term -> term.
+build-dispatch _Ind [] _Tag _Args0 Default Default.
+build-dispatch Ind [K|Ks] Tag Args0 Default Body :-
+  coq.gref->id (indc K) KName,
+  string_to_coq_string_term KName KNameTerm,
+  coq.locate "string_dec" (const SumboolFnC),
+  coq.env.indc K _ParNo _UParNo _Kno KTy,
+  count-ctor-args KTy Arity ArgTys,
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
+  ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
+  build-ctor-body K Arity ArgTys Args0 ErrTerm [] ArmBody,
+  build-dispatch Ind Ks Tag Args0 Default RestBody,
+  SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
+  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
+  NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
+  SumboolTy = app [global (indt SumboolIndt), EqProp, NeqProp],
+  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
+    [ fun `_` EqProp  (_\ ArmBody)
+    , fun `_` NeqProp (_\ RestBody)
+    ].
+
+% ============================================================================
+% build-from-json-term: build the full from_json function.
+%
+% Structure:
+%   fun js =>
+%     match js with
+%     | JSON_Object m => match m with
+%       | nil => err
+%       | p :: rest => match rest with
+%         | nil => match p with
+%           | (ts, ar) => match ar with
+%             | JSON_Array as0 => dispatch ts as0
+%             | _ => err
+%             end
+%           end
+%         | _ => err
+%         end
+%       end
+%     | _ => err
+%     end
+%
+% HOAS: clause-head metavar RJS is solved so that (fun `js` JSONTy (js\ RJS js))
+% = the correct from_json function. Inner metavars DispOf, ArrMatchOf, etc.
+% are solved by Elpi's HOU (Miller unification) after pi-decl'ing the bound vars.
+% ============================================================================
+
+func build-from-json-term inductive, list term -> term.
+build-from-json-term Ind Params (fun `js` JSONTy (js\ RJS js)) :-
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  std.rev Params RevParams,
+  coq.mk-app (global (indt Ind)) RevParams _IndTy,
+  json-ty JSONTy,
+  str-ty StrTy,
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  list-ty JSONTy ListJSONTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  list-ty PairStrJsonTy MapStrJsonTy,
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
+  ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
+  ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
+  %
+  % Pi-decl ALL match-bound variables. Use metavars solved by Elpi's HOU.
+  % Each equation `F X1...Xn = body` solves F = (x1\...\xn\ body[X1:=x1,...]).
+  %
+  @pi-decl `js`  JSONTy        JS\
+  @pi-decl `m`   MapStrJsonTy  MapVar\
+  @pi-decl `p`   PairStrJsonTy PairVar\
+  @pi-decl `rm`  MapStrJsonTy  RestMap\
+  @pi-decl `ts`  StrTy         TagVar\
+  @pi-decl `ar`  JSONTy        ArrVar\
+  @pi-decl `as0` ListJSONTy    ArgsVar\
+    %
+    % Step 1: dispatch body (uses TagVar and ArgsVar)
+    build-dispatch Ind Kns TagVar ArgsVar ErrUnrec (DispOf TagVar ArgsVar),
+    %
+    % Step 2: arr-match  match ar with JSON_Array as0 => dispatch ts as0 | _ => err
+    ArrMatchOf TagVar ArrVar =
+      match ArrVar (fun `_` JSONTy (_\ {{Result _ string}}))
+        [ fun `_`   MapStrJsonTy  (_\ ErrNoCons)
+        , fun `as0` ListJSONTy    (a0\ DispOf TagVar a0)
+        , fun `_`   StrTy         (_\ ErrNoCons)
+        , fun `_`   NatTy         (_\ ErrNoCons)
+        , fun `_`   BoolTy        (_\ ErrNoCons)
+        ],
+    %
+    % Step 3: pair-match  match p with pair ts ar => arr-match ts ar
+    PairMatchOf PairVar =
+      match PairVar (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
+        [ fun `ts` StrTy  (ts\ fun `ar` JSONTy (ar\ ArrMatchOf ts ar))
+        ],
+    %
+    % Step 4: rest-match  match rest with nil => pair-match p | cons _ _ => err
+    RestMatchOf PairVar RestMap =
+      match RestMap (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+        [ PairMatchOf PairVar
+        , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
+        ],
+    %
+    % Step 5: map-match  match m with nil => err | cons p rest => rest-match p rest
+    MapMatchOf MapVar =
+      match MapVar (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+        [ ErrNoCons
+        , fun `p`  PairStrJsonTy (pp\
+          fun `rm` MapStrJsonTy  (rr\ RestMatchOf pp rr))
+        ],
+    %
+    % Step 6: outer match on JS
+    RJS JS =
+      match JS (fun `_` JSONTy (_\ {{Result _ string}}))
+        [ fun `m` MapStrJsonTy (mm\ MapMatchOf mm)
+        , fun `_` ListJSONTy   (_\ ErrNoCons)
+        , fun `_` StrTy        (_\ ErrNoCons)
+        , fun `_` NatTy        (_\ ErrNoCons)
+        , fun `_` BoolTy       (_\ ErrNoCons)
+        ].
+
+% ============================================================================
+% Phase 4: Main entry point
+% ============================================================================
+
+func main gref, string -> list prop.
+main (indt Ind) Prefix C :- std.do! [
+
+  % --- Phase 1: Build to_json ---
+  build-to-json-term Ind [] ToJsonSkel,
+  std.assert-ok! (coq.elaborate-skeleton ToJsonSkel ToJsonTy ToJson)
+    "derive.jsonifiable: to_json elaboration failed",
+  coq.ensure-fresh-global-id (Prefix ^ "to_json") TJName,
+  coq.env.add-const TJName ToJson ToJsonTy @transparent! TJC,
+  coq.say "derive.jsonifiable: registered" TJName,
+
+  % --- Phase 2: Build from_json ---
+  build-from-json-term Ind [] FromJsonSkel,
+  std.assert-ok! (coq.elaborate-skeleton FromJsonSkel FromJsonTy FromJson)
+    "derive.jsonifiable: from_json elaboration failed",
+  coq.ensure-fresh-global-id (Prefix ^ "from_json") FJName,
+  coq.env.add-const FJName FromJson FromJsonTy @transparent! FJC,
+  coq.say "derive.jsonifiable: registered" FJName,
+
+  % --- Phase 3: Prove canonical_jsonification via Ltac1 ---
+  str-ty StrTy,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  coq.locate "res" (indc ResC),
+  ResultTy = {result-ty IndTy StrTy},
+  ProofTy = prod `a` IndTy (a\
+    app [ {{@eq}}, ResultTy
+        , app [global (const FJC), app [global (const TJC), a]]
+        , app [global (indc ResC), _, a]
+        ]),
+  % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
+  std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
+    "derive.jsonifiable: canonical proof typecheck failed",
+  coq.ltac.collect-goals Bo [G] [],
+  coq.ltac.open (g\gl\ coq.ltac.call "derive_jsonifiable_proof" [] g gl ok) G [],
+  coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
+  coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
+  coq.say "derive.jsonifiable: proved" PrfName,
+
+  % --- Phase 4: Build Jsonifiable instance ---
+  coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc _BuildJGR),
+  Instance = {{ @Build_Jsonifiable lp:IndTy
+                                   lp:{{global (const TJC)}}
+                                   lp:{{global (const FJC)}}
+                                   lp:{{global (const PrfC)}} }},
+  std.assert-ok! (coq.elaborate-skeleton Instance InstanceTy InstanceElab)
+    "derive.jsonifiable: instance elaboration failed",
+  coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
+  coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
+  coq.TC.declare-instance (const InstC) 0,
+  coq.say "derive.jsonifiable: declared TC instance" InstName,
+
+  coq.elpi.accumulate _ "derive.jsonifiable.db"
+    (clause _ _ (jsonifiable-done (indt Ind))),
+  C = [jsonifiable-done (indt Ind)]
+].
+
+main (indc _) _ _ :- coq.error "derive.jsonifiable: cannot be called on a constructor".
+main (const _) _ _ :- coq.error "derive.jsonifiable: cannot be called on a constant".
+
+}

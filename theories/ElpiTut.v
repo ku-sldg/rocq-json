@@ -45,3 +45,28 @@ Elpi derive Ascii.ascii.
 Print ascii_namer.
 
 derive string.
+Print string_namer.
+
+derive Inductive test := 
+  | A (x : nat) 
+  | B (s1 : string) (s2 : string) 
+  | C : test -> test.
+Print test_eqb_OK_sumbool.
+
+Elpi Command jsoner.
+Elpi Query lp:{{
+  coq.say "Testing"
+  ,coq.locate "test" (indt GR)
+  ,Name is {coq.gref->id (indt GR)} ^ "_to_json"
+  ,coq.say "Name is " Name
+
+  ,T = global (indt GR)
+  ,coq.env.indt GR Ind ParNo UParNo IndSort K KT
+  ,std.assert! (Ind = tt) "jsoner: coinductive types are not supported"
+  ,coq.say "Inductive " GR "takes " ParNo " parameters"
+  ,coq.say "Inductive " GR "takes " UParNo " uniform parameters"
+  ,coq.say "Inductive " GR "has sort " IndSort
+  ,coq.say "Inductive " GR "has " K " constructors, with types " KT
+  ,coq.locate "Stdlib.Strings.String.string" StrTy
+
+}}.
