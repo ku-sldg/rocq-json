@@ -115,23 +115,42 @@ build-tagged-object Tag ArgJsons TaggedObj :-
 % Phase 1: to_json
 % ============================================================================
 
+% Key insight: {{ @to_JSON _ _ lp:V }} inside a lambda or higher-order predicate
+% shares hole-metavariables across all calls, causing type conflicts for args of
+% different types. The fix: use EXPLICIT RECURSION so each clause invocation
+% (not lambda application) gets fresh holes via Prolog's clause renaming.
+
+% Build list of `@to_JSON _ _ Vi` skeletons, one per arg, with fresh holes per step.
+func build-to-json-args list term, list term -> list term.
+build-to-json-args [] [] [].
+build-to-json-args [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
+  build-to-json-args Vs VTys Rs.
+
+% Same for recursive types: self-reference args use SelfRef directly.
+func build-to-json-args-rec inductive, term, list term, list term -> list term.
+build-to-json-args-rec _Ind _SelfRef [] [] [].
+build-to-json-args-rec Ind SelfRef [V|Vs] [(global (indt Ind))|VTys] [(app [SelfRef, V])|Rs] :- !,
+  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
+build-to-json-args-rec Ind SelfRef [V|Vs] [(app [global (indt Ind)|_])|VTys] [(app [SelfRef, V])|Rs] :- !,
+  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
+build-to-json-args-rec Ind SelfRef [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
+  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
+
 func to-json-branch-norec term, term, list term, list term -> term.
-to-json-branch-norec K _KTy Vars _VarTys Body :-
+to-json-branch-norec K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
-  std.map Vars (v\ r\ r = {{ @to_JSON _ _ lp:v }}) ArgJsons,
+  build-to-json-args Vars VarTys ArgJsons,
   build-tagged-object KName ArgJsons Body.
 
 func to-json-branch-rec inductive, term, term, term, list term, list term -> term.
 to-json-branch-rec Ind SelfRef K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
-  std.map2 Vars VarTys (v\ vty\ r\
-    if (is-self-reference Ind vty)
-      (r = app [SelfRef, v])
-      (r = {{ @to_JSON _ _ lp:v }})
-  ) ArgJsons,
+  build-to-json-args-rec Ind SelfRef Vars VarTys ArgJsons,
   build-tagged-object KName ArgJsons Body.
+
+func build-to-json-term inductive, list term -> term.
 
 % Non-recursive case: fun a => match a with ...
 build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
@@ -146,7 +165,6 @@ build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
       (R A).
 
 % Recursive case: fix self a => match a with ...
-func build-to-json-term inductive, list term -> term.
 build-to-json-term Ind Params
     {{ fix self (a : lp:IndTy) {struct a} : lp:JSONTy := lp:(R self a) }} :-
   coq.env.recursive? Ind, !,
@@ -192,54 +210,98 @@ count-ctor-args _ 0 [].
 %   AccRev   : decoded args so far (reversed)
 % ============================================================================
 
-func build-ctor-body constructor, int, list term, term, term, list term -> term.
+% ============================================================================
+% build-ctor-body: build the match-on-args + bind chain for one constructor.
+%
+% Parameters:
+%   Ind      : the inductive being derived (to detect self-reference args)
+%   SelfRef  : for recursive types, the fixpoint self-call function; for
+%              non-recursive types pass `hole` (never used for self-ref args)
+%   K        : constructor
+%   N        : number of remaining args to decode
+%   ArgTys   : types of remaining args
+%   Args0    : current list-of-JSON variable
+%   ErrTerm  : error for arity mismatch
+%   AccRev   : decoded args so far (reversed)
+% ============================================================================
 
-build-ctor-body K 0 [] Args0 ErrTerm AccRev Body :- !,
+% Key insight: call build-ctor-body recursively INSIDE the Prolog lambda body
+% via {build-ctor-body ...}. This avoids HO-unification entirely. The lambda
+% variables jr and dv are free Prolog vars at call time, embedded correctly
+% in the resulting match term.
+
+func build-ctor-body inductive, term, constructor, int, list term, term, term, list term -> term.
+
+% Base case N=0: match nil => res (K acc), cons => err arity
+build-ctor-body _Ind _SelfRef K 0 [] Args0 ErrTerm AccRev Body :- !,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
   std.rev AccRev Acc,
   coq.mk-app (global (indc K)) Acc KApp,
   coq.locate "res" (indc ResC),
-  % match Args0 with nil => res (K v1...vn) | cons _ _ => err (too many)
   Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ app [global (indc ResC), _, KApp]
+    [ app [global (indc ResC), _, _, KApp]
     , fun `_` JSONTy (_\ fun `_` ListJSONTy (_\ ErrTerm))
     ].
 
-build-ctor-body K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
+% Self-reference arg (exact indt): use SelfRef ja for recursive decode
+build-ctor-body Ind SelfRef K N [(global (indt Ind))|ArgTys] Args0 ErrTerm AccRev Body :- !,
+  N > 0, N1 is N - 1,
+  json-ty JSONTy,
+  list-ty JSONTy ListJSONTy,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  coq.locate "bind" (const BindC),
+  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+    [ ErrTerm
+    , fun `ja` JSONTy (ja\
+      fun `jr` ListJSONTy (jr\
+        app [global (const BindC), _, _, _,
+             app [SelfRef, ja],
+             fun `dv` IndTy (dv\
+               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
+    ].
+
+% Parametric self-reference: app [global (indt Ind) | _]
+build-ctor-body Ind SelfRef K N [(app [(global (indt Ind)) | _])|ArgTys] Args0 ErrTerm AccRev Body :- !,
+  N > 0, N1 is N - 1,
+  json-ty JSONTy,
+  list-ty JSONTy ListJSONTy,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  coq.locate "bind" (const BindC),
+  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+    [ ErrTerm
+    , fun `ja` JSONTy (ja\
+      fun `jr` ListJSONTy (jr\
+        app [global (const BindC), _, _, _,
+             app [SelfRef, ja],
+             fun `dv` IndTy (dv\
+               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
+    ].
+
+% Non-self arg: use from_JSON (TC-resolved at elaboration time)
+build-ctor-body Ind SelfRef K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
   N > 0, N1 is N - 1,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
   coq.locate "bind" (const BindC),
-  % Introduce lambda vars for the list head and tail
-  @pi-decl `ja` JSONTy     JA\
-  @pi-decl `jr` ListJSONTy JR\
-  @pi-decl `dv` ArgTy      DV\
-    build-ctor-body K N1 ArgTys JR ErrTerm [DV|AccRev] (InnerBody JA JR DV),
-  % match Args0 with nil => err | cons ja jr => bind (from_JSON ja) (fun dv => inner)
   Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ ErrTerm   % nil: too few args
-    , fun `ja` JSONTy     (ja\
+    [ ErrTerm
+    , fun `ja` JSONTy (ja\
       fun `jr` ListJSONTy (jr\
         app [global (const BindC), _, _, _,
              {{ @from_JSON _ _ lp:ja }},
-             fun `dv` ArgTy (dv\ InnerBody ja jr dv)]))
+             fun `dv` ArgTy (dv\
+               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
     ].
 
 % ============================================================================
 % build-dispatch: sumbool dispatch chain over constructors.
-%
-% For each constructor K with name "K":
-%   match string_eqb_OK_sumbool tag_str "K" with
-%   | left _ => <arm for K>
-%   | right _ => <rest of chain>
-%
-% TagStr, Args0 : lambda-bound vars passed in from the outer match.
+% SelfRef is threaded through for recursive self-calls in build-ctor-body.
 % ============================================================================
 
-func build-dispatch inductive, list constructor, term, term, term -> term.
-build-dispatch _Ind [] _Tag _Args0 Default Default.
-build-dispatch Ind [K|Ks] Tag Args0 Default Body :-
+func build-dispatch inductive, term, list constructor, term, term, term -> term.
+build-dispatch _Ind _SelfRef [] _Tag _Args0 Default Default.
+build-dispatch Ind SelfRef [K|Ks] Tag Args0 Default Body :-
   coq.gref->id (indc K) KName,
   string_to_coq_string_term KName KNameTerm,
   coq.locate "string_dec" (const SumboolFnC),
@@ -248,8 +310,8 @@ build-dispatch Ind [K|Ks] Tag Args0 Default Body :-
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
-  build-ctor-body K Arity ArgTys Args0 ErrTerm [] ArmBody,
-  build-dispatch Ind Ks Tag Args0 Default RestBody,
+  build-ctor-body Ind SelfRef K Arity ArgTys Args0 ErrTerm [] ArmBody,
+  build-dispatch Ind SelfRef Ks Tag Args0 Default RestBody,
   SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
@@ -261,37 +323,22 @@ build-dispatch Ind [K|Ks] Tag Args0 Default Body :-
     ].
 
 % ============================================================================
-% build-from-json-term: build the full from_json function.
-%
-% Structure:
-%   fun js =>
-%     match js with
-%     | JSON_Object m => match m with
-%       | nil => err
-%       | p :: rest => match rest with
-%         | nil => match p with
-%           | (ts, ar) => match ar with
-%             | JSON_Array as0 => dispatch ts as0
-%             | _ => err
-%             end
-%           end
-%         | _ => err
-%         end
-%       end
-%     | _ => err
-%     end
-%
-% HOAS: clause-head metavar RJS is solved so that (fun `js` JSONTy (js\ RJS js))
-% = the correct from_json function. Inner metavars DispOf, ArrMatchOf, etc.
-% are solved by Elpi's HOU (Miller unification) after pi-decl'ing the bound vars.
+% build-from-json-body: build the outer JSON match body given SelfRef.
+% Shared by both recursive and non-recursive from_json.
 % ============================================================================
 
-func build-from-json-term inductive, list term -> term.
-build-from-json-term Ind Params (fun `js` JSONTy (js\ RJS js)) :-
-  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
-  std.rev Params RevParams,
-  coq.mk-app (global (indt Ind)) RevParams _IndTy,
-  json-ty JSONTy,
+% ============================================================================
+% build-from-json-body: build the JSON match body for from_json.
+%
+% Takes JS (the JSON scrutinee term) explicitly.
+% SelfRef is the recursive self-call (or `hole` for non-recursive types).
+% Builds the full nested match structure inline using Prolog lambdas,
+% calling build-dispatch with the lambda-bound tag/args variables.
+% ============================================================================
+
+func build-from-json-body inductive, term, term, list constructor, term -> term.
+build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
+  coq.say "DBG build-from-json-body: Ind=" Ind "SelfRef=" SelfRef,
   str-ty StrTy,
   nat-ty NatTy,
   bool-ty BoolTy,
@@ -303,61 +350,93 @@ build-from-json-term Ind Params (fun `js` JSONTy (js\ RJS js)) :-
   coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
-  %
-  % Pi-decl ALL match-bound variables. Use metavars solved by Elpi's HOU.
-  % Each equation `F X1...Xn = body` solves F = (x1\...\xn\ body[X1:=x1,...]).
-  %
-  @pi-decl `js`  JSONTy        JS\
-  @pi-decl `m`   MapStrJsonTy  MapVar\
-  @pi-decl `p`   PairStrJsonTy PairVar\
-  @pi-decl `rm`  MapStrJsonTy  RestMap\
-  @pi-decl `ts`  StrTy         TagVar\
-  @pi-decl `ar`  JSONTy        ArrVar\
-  @pi-decl `as0` ListJSONTy    ArgsVar\
-    %
-    % Step 1: dispatch body (uses TagVar and ArgsVar)
-    build-dispatch Ind Kns TagVar ArgsVar ErrUnrec (DispOf TagVar ArgsVar),
-    %
-    % Step 2: arr-match  match ar with JSON_Array as0 => dispatch ts as0 | _ => err
-    ArrMatchOf TagVar ArrVar =
-      match ArrVar (fun `_` JSONTy (_\ {{Result _ string}}))
-        [ fun `_`   MapStrJsonTy  (_\ ErrNoCons)
-        , fun `as0` ListJSONTy    (a0\ DispOf TagVar a0)
-        , fun `_`   StrTy         (_\ ErrNoCons)
-        , fun `_`   NatTy         (_\ ErrNoCons)
-        , fun `_`   BoolTy        (_\ ErrNoCons)
-        ],
-    %
-    % Step 3: pair-match  match p with pair ts ar => arr-match ts ar
-    PairMatchOf PairVar =
-      match PairVar (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
-        [ fun `ts` StrTy  (ts\ fun `ar` JSONTy (ar\ ArrMatchOf ts ar))
-        ],
-    %
-    % Step 4: rest-match  match rest with nil => pair-match p | cons _ _ => err
-    RestMatchOf PairVar RestMap =
-      match RestMap (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
-        [ PairMatchOf PairVar
-        , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
-        ],
-    %
-    % Step 5: map-match  match m with nil => err | cons p rest => rest-match p rest
-    MapMatchOf MapVar =
-      match MapVar (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
-        [ ErrNoCons
-        , fun `p`  PairStrJsonTy (pp\
-          fun `rm` MapStrJsonTy  (rr\ RestMatchOf pp rr))
-        ],
-    %
-    % Step 6: outer match on JS
-    RJS JS =
-      match JS (fun `_` JSONTy (_\ {{Result _ string}}))
-        [ fun `m` MapStrJsonTy (mm\ MapMatchOf mm)
-        , fun `_` ListJSONTy   (_\ ErrNoCons)
-        , fun `_` StrTy        (_\ ErrNoCons)
-        , fun `_` NatTy        (_\ ErrNoCons)
-        , fun `_` BoolTy       (_\ ErrNoCons)
-        ].
+  % Compute dispatch outside lambdas using @pi-decl + HO unification.
+  % DispF is a 2-arg Prolog function: DispF ts as0 = dispatch_body(ts,as0).
+  @pi-decl `ts`  StrTy         TS\
+  @pi-decl `as0` ListJSONTy    AS0\
+    build-dispatch Ind SelfRef Kns TS AS0 ErrUnrec (DispF TS AS0),
+  coq.say "DBG: dispatch done, DispF computed, building sub-parts",
+  % Step 1: build the JSON_Array match (on ar) using DispF
+  @pi-decl `ts_s` StrTy TSS\
+  @pi-decl `ar_s` JSONTy ARS\
+    ( ArrMatchF TSS ARS =
+        match ARS (fun `_` JSONTy (_\ {{Result _ string}}))
+          [ fun `_` MapStrJsonTy (_\ ErrNoCons)
+          , fun `as0` ListJSONTy (as0\ DispF TSS as0)
+          , fun `_` StrTy (_\ ErrNoCons)
+          , fun `_` NatTy (_\ ErrNoCons)
+          , fun `_` BoolTy (_\ ErrNoCons)
+          ] ),
+  coq.say "DBG: ArrMatchF built OK",
+  % Step 2: build the pair match (on pp)
+  @pi-decl `pp_s` PairStrJsonTy PPS\
+    ( PairMatchF PPS =
+        match PPS (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
+          [ fun `ts` StrTy (ts\ fun `ar` JSONTy (ar\ ArrMatchF ts ar))
+          ] ),
+  coq.say "DBG: PairMatchF built OK",
+  % Step 3: build the rest-map match (on rr)
+  @pi-decl `pp_r` PairStrJsonTy PPR\
+  @pi-decl `rr_s` MapStrJsonTy  RRS\
+    ( RestMatchF PPR RRS =
+        match RRS (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+          [ PairMatchF PPR
+          , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
+          ] ),
+  coq.say "DBG: RestMatchF built OK",
+  % Step 4: build the map match (on mm)
+  @pi-decl `mm_s` MapStrJsonTy MMS\
+    ( MapMatchF MMS =
+        match MMS (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+          [ ErrNoCons
+          , fun `p` PairStrJsonTy (pp\ fun `rm` MapStrJsonTy (rr\ RestMatchF pp rr))
+          ] ),
+  coq.say "DBG: MapMatchF built OK",
+  % Step 5: build the full Body
+  Body = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
+    [ fun `m` MapStrJsonTy (mm\ MapMatchF mm)
+    , fun `_` ListJSONTy   (_\ ErrNoCons)
+    , fun `_` StrTy        (_\ ErrNoCons)
+    , fun `_` NatTy        (_\ ErrNoCons)
+    , fun `_` BoolTy       (_\ ErrNoCons)
+    ],
+  coq.say "DBG: Body built OK".
+
+% ============================================================================
+% build-from-json-term: wrap the body in fun or fix depending on recursion.
+% ============================================================================
+
+func build-from-json-term inductive, list term -> term.
+
+% Non-recursive: fun js => match js with ...
+% Uses @pi-decl so build-from-json-body can see the js variable;
+% R JS = BodyTerm solves R to the Prolog lambda js\ BodyTerm.
+build-from-json-term Ind Params (fun `js` JSONTy (js\ R js)) :-
+  not (coq.env.recursive? Ind), !,
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  std.rev Params RevParams,
+  coq.mk-app (global (indt Ind)) RevParams _IndTy,
+  json-ty JSONTy,
+  @pi-decl `js` JSONTy JS\
+    % SelfRef unused for non-recursive types; pass dummy term (global indt)
+    build-from-json-body Ind (global (indt Ind)) JSONTy Kns JS (R JS).
+
+% Recursive: fix from_json (js : JSON) {struct js} := match js with ...
+% Uses @pi-decl to get pi-constants for HO unification: R Self JS = body.
+build-from-json-term Ind Params
+    {{ fix from_json (js : lp:JSONTy) {struct js} : lp:ResultTy := lp:(R from_json js) }} :-
+  coq.env.recursive? Ind, !,
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  std.rev Params RevParams,
+  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  json-ty JSONTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
+  @pi-decl `from_json` {{ lp:JSONTy -> lp:ResultTy }} Self\
+  @pi-decl `js` JSONTy JS\
+    ( std.assert! (build-from-json-body Ind Self JSONTy Kns JS BodyTerm)
+        "build-from-json-body failed",
+      R Self JS = BodyTerm ).
 
 % ============================================================================
 % Phase 4: Main entry point
@@ -375,7 +454,8 @@ main (indt Ind) Prefix C :- std.do! [
   coq.say "derive.jsonifiable: registered" TJName,
 
   % --- Phase 2: Build from_json ---
-  build-from-json-term Ind [] FromJsonSkel,
+  std.assert! (build-from-json-term Ind [] FromJsonSkel)
+    "derive.jsonifiable: build-from-json-term failed",
   std.assert-ok! (coq.elaborate-skeleton FromJsonSkel FromJsonTy FromJson)
     "derive.jsonifiable: from_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "from_json") FJName,
@@ -390,7 +470,7 @@ main (indt Ind) Prefix C :- std.do! [
   ProofTy = prod `a` IndTy (a\
     app [ {{@eq}}, ResultTy
         , app [global (const FJC), app [global (const TJC), a]]
-        , app [global (indc ResC), _, a]
+        , app [global (indc ResC), _, _, a]
         ]),
   % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
   std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)

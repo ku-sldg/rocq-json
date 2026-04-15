@@ -30,8 +30,16 @@ Ltac fix_eq_ext :=
   end;
   reflexivity.
 
-(* Main canonical roundtrip proof tactic *)
-Ltac derive_jsonifiable_proof := idtac.
+(* Main canonical roundtrip proof tactic.
+   Handles enums and non-recursive types with arguments.
+   For each constructor case: simpl unfolds to_json/from_json/string_dec,
+   canonical_jsonification rewrites from_JSON(to_JSON x) = res x for each arg,
+   then simpl reduces the bind chain. *)
+Ltac derive_jsonifiable_proof :=
+  let v := fresh "v" in
+  intro v; destruct v; simpl;
+  repeat rewrite canonical_jsonification; simpl;
+  reflexivity.
 
 (* ===== Step 1: Minimal test - just explore the Elpi environment ===== *)
 
@@ -66,5 +74,22 @@ Elpi Query lp:{{
 
 
 
-(* ===== Step 4: Run the derivation on color ===== *)
+(* ===== Test 1: Simple enum ===== *)
 Elpi derive.jsonifiable color.
+Check color_Jsonifiable.
+Compute (to_JSON Green : JSON).
+Print from_JSON.
+Compute (from_JSON (to_JSON Red) : Result color string).
+
+(* ===== Test 2: Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
+Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
+derive foo.
+Elpi derive.jsonifiable foo.
+Check foo_Jsonifiable.
+Compute (to_JSON (Fa 42) : JSON).
+Compute (from_JSON (to_JSON (Fb 7 13)) : Result foo string).
+
+(* ===== Test 3: Recursive type ===== *)
+Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
+derive tree.
+Elpi derive.jsonifiable tree.
