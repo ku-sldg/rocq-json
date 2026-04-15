@@ -338,7 +338,6 @@ build-dispatch Ind SelfRef [K|Ks] Tag Args0 Default Body :-
 
 func build-from-json-body inductive, term, term, list constructor, term -> term.
 build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
-  coq.say "DBG build-from-json-body: Ind=" Ind "SelfRef=" SelfRef,
   str-ty StrTy,
   nat-ty NatTy,
   bool-ty BoolTy,
@@ -355,7 +354,6 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
   @pi-decl `ts`  StrTy         TS\
   @pi-decl `as0` ListJSONTy    AS0\
     build-dispatch Ind SelfRef Kns TS AS0 ErrUnrec (DispF TS AS0),
-  coq.say "DBG: dispatch done, DispF computed, building sub-parts",
   % Step 1: build the JSON_Array match (on ar) using DispF
   @pi-decl `ts_s` StrTy TSS\
   @pi-decl `ar_s` JSONTy ARS\
@@ -367,14 +365,12 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
           , fun `_` NatTy (_\ ErrNoCons)
           , fun `_` BoolTy (_\ ErrNoCons)
           ] ),
-  coq.say "DBG: ArrMatchF built OK",
   % Step 2: build the pair match (on pp)
   @pi-decl `pp_s` PairStrJsonTy PPS\
     ( PairMatchF PPS =
         match PPS (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
           [ fun `ts` StrTy (ts\ fun `ar` JSONTy (ar\ ArrMatchF ts ar))
           ] ),
-  coq.say "DBG: PairMatchF built OK",
   % Step 3: build the rest-map match (on rr)
   @pi-decl `pp_r` PairStrJsonTy PPR\
   @pi-decl `rr_s` MapStrJsonTy  RRS\
@@ -383,7 +379,6 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
           [ PairMatchF PPR
           , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
           ] ),
-  coq.say "DBG: RestMatchF built OK",
   % Step 4: build the map match (on mm)
   @pi-decl `mm_s` MapStrJsonTy MMS\
     ( MapMatchF MMS =
@@ -391,7 +386,6 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
           [ ErrNoCons
           , fun `p` PairStrJsonTy (pp\ fun `rm` MapStrJsonTy (rr\ RestMatchF pp rr))
           ] ),
-  coq.say "DBG: MapMatchF built OK",
   % Step 5: build the full Body
   Body = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
     [ fun `m` MapStrJsonTy (mm\ MapMatchF mm)
@@ -399,8 +393,7 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
     , fun `_` StrTy        (_\ ErrNoCons)
     , fun `_` NatTy        (_\ ErrNoCons)
     , fun `_` BoolTy       (_\ ErrNoCons)
-    ],
-  coq.say "DBG: Body built OK".
+    ].
 
 % ============================================================================
 % build-from-json-term: wrap the body in fun or fix depending on recursion.
@@ -434,9 +427,11 @@ build-from-json-term Ind Params
   result-ty IndTy StrTy ResultTy,
   @pi-decl `from_json` {{ lp:JSONTy -> lp:ResultTy }} Self\
   @pi-decl `js` JSONTy JS\
-    ( std.assert! (build-from-json-body Ind Self JSONTy Kns JS BodyTerm)
-        "build-from-json-body failed",
-      R Self JS = BodyTerm ).
+    % Pass R Self JS as the output — this puts the output in "pattern form"
+    % (applied to pi-constants) so func's mode system can do HO-unification.
+    % After build-from-json-body runs, R is unified with fn\ js\ match js ... .
+    std.assert! (build-from-json-body Ind Self JSONTy Kns JS (R Self JS))
+      "build-from-json-body failed".
 
 % ============================================================================
 % Phase 4: Main entry point

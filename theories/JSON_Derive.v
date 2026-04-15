@@ -31,13 +31,17 @@ Ltac fix_eq_ext :=
   reflexivity.
 
 (* Main canonical roundtrip proof tactic.
-   Handles enums and non-recursive types with arguments.
+   Uses induction (not just destruct) to handle recursive types via IH.
    For each constructor case: simpl unfolds to_json/from_json/string_dec,
    canonical_jsonification rewrites from_JSON(to_JSON x) = res x for each arg,
+   IH rewrites recursive calls from_json(to_json t) = res t,
    then simpl reduces the bind chain. *)
 Ltac derive_jsonifiable_proof :=
   let v := fresh "v" in
-  intro v; destruct v; simpl;
+  intro v; induction v; simpl;
+  repeat match goal with
+  | IH : ?from_json (?to_json _) = _ |- _ => rewrite IH
+  end;
   repeat rewrite canonical_jsonification; simpl;
   reflexivity.
 
@@ -93,3 +97,7 @@ Compute (from_JSON (to_JSON (Fb 7 13)) : Result foo string).
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
 derive tree.
 Elpi derive.jsonifiable tree.
+Check tree_Jsonifiable.
+Compute (to_JSON (Node Leaf 42 Leaf) : JSON).
+Compute (from_JSON (to_JSON (Node Leaf 42 Leaf)) : Result tree string).
+Compute (from_JSON (to_JSON (Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf))) : Result tree string).
