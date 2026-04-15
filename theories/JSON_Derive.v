@@ -31,11 +31,11 @@ Ltac fix_eq_ext :=
   reflexivity.
 
 (* Main canonical roundtrip proof tactic.
-   Uses induction (not just destruct) to handle recursive types via IH.
-   For each constructor case: simpl unfolds to_json/from_json/string_dec,
-   canonical_jsonification rewrites from_JSON(to_JSON x) = res x for each arg,
-   IH rewrites recursive calls from_json(to_json t) = res t,
-   then simpl reduces the bind chain. *)
+   Uses induction to handle recursive types via IH.
+   - simpl unfolds to_json/from_json on concrete constructors
+   - IH rewrites recursive calls: from_json(to_json t) = res t
+   - canonical_jsonification rewrites from_JSON(to_JSON x) = res x
+   - string_dec on equal strings reduces to left refl *)
 Ltac derive_jsonifiable_proof :=
   let v := fresh "v" in
   intro v; induction v; simpl;
@@ -43,7 +43,7 @@ Ltac derive_jsonifiable_proof :=
   | IH : ?from_json (?to_json _) = _ |- _ => rewrite IH
   end;
   repeat rewrite canonical_jsonification; simpl;
-  reflexivity.
+  try reflexivity.
 
 (* ===== Step 1: Minimal test - just explore the Elpi environment ===== *)
 

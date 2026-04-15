@@ -93,23 +93,51 @@ build-coq-list ElemTy [H|T] (app [global ConsGR, ElemTy, H, Rest]) :-
   build-coq-list ElemTy T Rest.
 
 % ============================================================================
-% Build: JSON_Object [("Tag", JSON_Array [arg1; ...])]
+% Build JSON terms for the new schema:
+%   0-arg ctors  → JSON_String "CtorName"
+%   N-arg ctors  → JSON_Object [("CtorName", JSON_Object [("n1",j1);...])]
 % ============================================================================
 
-func build-tagged-object string, list term -> term.
-build-tagged-object Tag ArgJsons TaggedObj :-
+% Extract argument names from a constructor's prod-chain.
+% `name` is opaque in coq-elpi; use coq.name->id to get the string.
+func extract-prod-names term -> list string.
+extract-prod-names (prod N _ Body) [S|Rest] :- !,
+  coq.name->id N S,
+  pi x\ extract-prod-names (Body x) Rest.
+extract-prod-names _ [].
+
+% Build JSON_String "KName" for 0-arg constructors.
+func build-json-string-ctor string -> term.
+build-json-string-ctor KName (app [global (indc StrGR), KNameCoqStr]) :-
+  coq.locate "RocqJSON.JSON_Type.JSON_String" (indc StrGR),
+  string_to_coq_string_term KName KNameCoqStr.
+
+% Build list of (name, json) pairs: [("n1",j1); ("n2",j2); ...]
+func build-named-json-pairs list string, list term -> list term.
+build-named-json-pairs [] [] [].
+build-named-json-pairs [N|Ns] [J|Js] [Pair|Pairs] :-
+  str-ty StrTy,
+  json-ty JSONTy,
+  coq.locate "Corelib.Init.Datatypes.pair" (indc PairGR),
+  string_to_coq_string_term N NStr,
+  Pair = app [global (indc PairGR), StrTy, JSONTy, NStr, J],
+  build-named-json-pairs Ns Js Pairs.
+
+% Build JSON_Object [("KName", JSON_Object [("n1",j1);...])] for N-arg constructors.
+func build-named-obj-ctor string, list string, list term -> term.
+build-named-obj-ctor KName ArgNames ArgJsons Body :-
   json-ty JSONTy,
   str-ty StrTy,
   coq.locate "RocqJSON.JSON_Type.JSON_Object" (indc ObjGR),
-  coq.locate "RocqJSON.JSON_Type.JSON_Array"  (indc ArrGR),
   coq.locate "Corelib.Init.Datatypes.pair"    (indc PairGR),
-  string_to_coq_string_term Tag TagStr,
   pair-ty StrTy JSONTy PairStrJsonTy,
-  build-coq-list JSONTy ArgJsons ArgsList,
-  ArrayTerm = app [global (indc ArrGR), ArgsList],
-  PairTerm  = app [global (indc PairGR), StrTy, JSONTy, TagStr, ArrayTerm],
-  build-coq-list PairStrJsonTy [PairTerm] MapList,
-  TaggedObj = app [global (indc ObjGR), MapList].
+  build-named-json-pairs ArgNames ArgJsons InnerPairs,
+  build-coq-list PairStrJsonTy InnerPairs InnerMap,
+  InnerObj = app [global (indc ObjGR), InnerMap],
+  string_to_coq_string_term KName KNameStr,
+  OuterPair = app [global (indc PairGR), StrTy, JSONTy, KNameStr, InnerObj],
+  build-coq-list PairStrJsonTy [OuterPair] OuterMap,
+  Body = app [global (indc ObjGR), OuterMap].
 
 % ============================================================================
 % Phase 1: to_json
@@ -120,7 +148,7 @@ build-tagged-object Tag ArgJsons TaggedObj :-
 % different types. The fix: use EXPLICIT RECURSION so each clause invocation
 % (not lambda application) gets fresh holes via Prolog's clause renaming.
 
-% Build list of `@to_JSON _ _ Vi` skeletons, one per arg, with fresh holes per step.
+% Build list of `@to_JSON _ _ Vi` skeletons for non-recursive types.
 func build-to-json-args list term, list term -> list term.
 build-to-json-args [] [] [].
 build-to-json-args [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
@@ -137,18 +165,34 @@ build-to-json-args-rec Ind SelfRef [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|R
   build-to-json-args-rec Ind SelfRef Vs VTys Rs.
 
 func to-json-branch-norec term, term, list term, list term -> term.
+% 0-arg constructor → JSON_String "KName"
+to-json-branch-norec K _KTy [] [] Body :- !,
+  coq.safe-dest-app K (global (indc KI)) _,
+  coq.gref->id (indc KI) KName,
+  build-json-string-ctor KName Body.
+% N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
 to-json-branch-norec K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
+  coq.env.indc KI _ _ _ FullKTy,
+  extract-prod-names FullKTy ArgNames,
   build-to-json-args Vars VarTys ArgJsons,
-  build-tagged-object KName ArgJsons Body.
+  build-named-obj-ctor KName ArgNames ArgJsons Body.
 
 func to-json-branch-rec inductive, term, term, term, list term, list term -> term.
+% 0-arg constructor → JSON_String "KName"
+to-json-branch-rec _Ind _SelfRef K _KTy [] [] Body :- !,
+  coq.safe-dest-app K (global (indc KI)) _,
+  coq.gref->id (indc KI) KName,
+  build-json-string-ctor KName Body.
+% N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
 to-json-branch-rec Ind SelfRef K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
+  coq.env.indc KI _ _ _ FullKTy,
+  extract-prod-names FullKTy ArgNames,
   build-to-json-args-rec Ind SelfRef Vars VarTys ArgJsons,
-  build-tagged-object KName ArgJsons Body.
+  build-named-obj-ctor KName ArgNames ArgJsons Body.
 
 func build-to-json-term inductive, list term -> term.
 
@@ -295,13 +339,124 @@ build-ctor-body Ind SelfRef K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
     ].
 
 % ============================================================================
-% build-dispatch: sumbool dispatch chain over constructors.
-% SelfRef is threaded through for recursive self-calls in build-ctor-body.
+% string_dec dispatch helpers.
 % ============================================================================
 
-func build-dispatch inductive, term, list constructor, term, term, term -> term.
-build-dispatch _Ind _SelfRef [] _Tag _Args0 Default Default.
-build-dispatch Ind SelfRef [K|Ks] Tag Args0 Default Body :-
+func build-string-dispatch-chain term, list constructor, term -> term.
+build-string-dispatch-chain _Tag [] Default Default.
+build-string-dispatch-chain Tag [K|Ks] Default Body :-
+  coq.gref->id (indc K) KName,
+  string_to_coq_string_term KName KNameTerm,
+  coq.locate "string_dec" (const SumboolFnC),
+  coq.locate "res" (indc ResC),
+  KApp = app [global (indc ResC), _, _, global (indc K)],
+  build-string-dispatch-chain Tag Ks Default RestBody,
+  SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
+  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
+  NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
+  SumboolTy = app [global (indt SumboolIndt), EqProp, NeqProp],
+  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
+    [ fun `_` EqProp  (_\ KApp)
+    , fun `_` NeqProp (_\ RestBody)
+    ].
+
+% ============================================================================
+% build-ctor-body-kvs: decode a constructor from kvs : list (string * JSON).
+%
+% Matches the list positionally (ignoring key strings), extracting the JSON
+% value from each pair.  Self-reference args call SelfRef; others call from_JSON.
+% ============================================================================
+
+func build-ctor-body-kvs inductive, term, constructor, int, list term, term, term, list term -> term.
+
+% Base case: 0 remaining args → match nil => res K, cons => err too many
+build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
+  str-ty StrTy,
+  json-ty JSONTy,
+  pair-ty StrTy JSONTy PairTy,
+  list-ty PairTy KvsTy,
+  std.rev AccRev Acc,
+  coq.mk-app (global (indc K)) Acc KApp,
+  coq.locate "res" (indc ResC),
+  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+    [ app [global (indc ResC), _, _, KApp]          % nil  → res K
+    , fun `_` PairTy (_\ fun `_` KvsTy (_\ ErrTerm)) % cons → err too many
+    ].
+
+% Self-reference arg: decode with SelfRef
+build-ctor-body-kvs Ind Self K N [(global (indt Ind))|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+  N > 0, N1 is N - 1,
+  str-ty StrTy,
+  json-ty JSONTy,
+  pair-ty StrTy JSONTy PairTy,
+  list-ty PairTy KvsTy,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  coq.locate "bind" (const BindC),
+  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+    [ ErrTerm                                % nil → too few
+    , fun `kv` PairTy (kv\
+        fun `kvr` KvsTy (kvr\
+          match kv (fun `_` PairTy (_\ {{Result _ string}}))
+            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
+                app [global (const BindC), _, _, _,
+                     app [Self, val],
+                     fun `dv` IndTy (dv\
+                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
+            ]))
+    ].
+
+% Parametric self-reference
+build-ctor-body-kvs Ind Self K N [(app [(global (indt Ind))|_])|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+  N > 0, N1 is N - 1,
+  str-ty StrTy,
+  json-ty JSONTy,
+  pair-ty StrTy JSONTy PairTy,
+  list-ty PairTy KvsTy,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  coq.locate "bind" (const BindC),
+  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+    [ ErrTerm
+    , fun `kv` PairTy (kv\
+        fun `kvr` KvsTy (kvr\
+          match kv (fun `_` PairTy (_\ {{Result _ string}}))
+            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
+                app [global (const BindC), _, _, _,
+                     app [Self, val],
+                     fun `dv` IndTy (dv\
+                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
+            ]))
+    ].
+
+% Non-self arg: decode with from_JSON
+build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
+  N > 0, N1 is N - 1,
+  str-ty StrTy,
+  json-ty JSONTy,
+  pair-ty StrTy JSONTy PairTy,
+  list-ty PairTy KvsTy,
+  coq.locate "bind" (const BindC),
+  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+    [ ErrTerm
+    , fun `kv` PairTy (kv\
+        fun `kvr` KvsTy (kvr\
+          match kv (fun `_` PairTy (_\ {{Result _ string}}))
+            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
+                app [global (const BindC), _, _, _,
+                     {{ @from_JSON _ _ lp:val }},
+                     fun `dv` ArgTy (dv\
+                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
+            ]))
+    ].
+
+% ============================================================================
+% build-obj-dispatch: dispatch chain over constructors with args.
+% Scrutinizes `tag : string` and for matching ctor decodes `kvs`.
+% ============================================================================
+
+func build-obj-dispatch inductive, term, list constructor, term, term, term -> term.
+build-obj-dispatch _Ind _Self [] _Tag _Kvs Default Default.
+build-obj-dispatch Ind Self [K|Ks] Tag Kvs Default Body :-
   coq.gref->id (indc K) KName,
   string_to_coq_string_term KName KNameTerm,
   coq.locate "string_dec" (const SumboolFnC),
@@ -310,8 +465,8 @@ build-dispatch Ind SelfRef [K|Ks] Tag Args0 Default Body :-
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
-  build-ctor-body Ind SelfRef K Arity ArgTys Args0 ErrTerm [] ArmBody,
-  build-dispatch Ind SelfRef Ks Tag Args0 Default RestBody,
+  build-ctor-body-kvs Ind Self K Arity ArgTys Kvs ErrTerm [] ArmBody,
+  build-obj-dispatch Ind Self Ks Tag Kvs Default RestBody,
   SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
@@ -323,17 +478,9 @@ build-dispatch Ind SelfRef [K|Ks] Tag Args0 Default Body :-
     ].
 
 % ============================================================================
-% build-from-json-body: build the outer JSON match body given SelfRef.
-% Shared by both recursive and non-recursive from_json.
-% ============================================================================
-
-% ============================================================================
-% build-from-json-body: build the JSON match body for from_json.
-%
-% Takes JS (the JSON scrutinee term) explicitly.
-% SelfRef is the recursive self-call (or `hole` for non-recursive types).
-% Builds the full nested match structure inline using Prolog lambdas,
-% calling build-dispatch with the lambda-bound tag/args variables.
+% build-from-json-body: outer JSON match dispatching by schema:
+%   JSON_String s           → enum constructors (0 args)
+%   JSON_Object [(t, JSON_Object kvs)]  → ctors with args
 % ============================================================================
 
 func build-from-json-body inductive, term, term, list constructor, term -> term.
@@ -349,48 +496,70 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
   coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
-  % Compute dispatch outside lambdas using @pi-decl + HO unification.
-  % DispF is a 2-arg Prolog function: DispF ts as0 = dispatch_body(ts,as0).
-  @pi-decl `ts`  StrTy         TS\
-  @pi-decl `as0` ListJSONTy    AS0\
-    build-dispatch Ind SelfRef Kns TS AS0 ErrUnrec (DispF TS AS0),
-  % Step 1: build the JSON_Array match (on ar) using DispF
-  @pi-decl `ts_s` StrTy TSS\
-  @pi-decl `ar_s` JSONTy ARS\
-    ( ArrMatchF TSS ARS =
-        match ARS (fun `_` JSONTy (_\ {{Result _ string}}))
-          [ fun `_` MapStrJsonTy (_\ ErrNoCons)
-          , fun `as0` ListJSONTy (as0\ DispF TSS as0)
+
+  % Split constructors by arity.
+  std.partition Kns
+    (k\ sigma KTy A Ts\ coq.env.indc k _ _ _ KTy, count-ctor-args KTy A Ts, A = 0)
+    EnumKns WithArgsKns,
+
+  % --- String branch: dispatch for 0-arg (enum) constructors ---
+  @pi-decl `s` StrTy S\
+    build-string-dispatch-chain S EnumKns ErrUnrec (StrDispF S),
+
+  % --- Object branch: dispatch for N-arg constructors ---
+  % Inner object kvs dispatch: ObjDispF tag kvs = match string_dec ...
+  @pi-decl `tag` StrTy TAG\
+  @pi-decl `kvs` MapStrJsonTy KVS\
+    build-obj-dispatch Ind SelfRef WithArgsKns TAG KVS ErrUnrec (ObjDispF TAG KVS),
+
+  % Match inner JSON_Object value: must be JSON_Object kvs
+  @pi-decl `tag2` StrTy TAG2\
+  @pi-decl `inner` JSONTy INNER\
+    ( InnerMatchF TAG2 INNER =
+        match INNER (fun `_` JSONTy (_\ {{Result _ string}}))
+          [ fun `kvs` MapStrJsonTy (kvs\ ObjDispF TAG2 kvs)  % JSON_Object kvs
+          , fun `_` ListJSONTy (_\ ErrNoCons)
           , fun `_` StrTy (_\ ErrNoCons)
           , fun `_` NatTy (_\ ErrNoCons)
           , fun `_` BoolTy (_\ ErrNoCons)
           ] ),
-  % Step 2: build the pair match (on pp)
-  @pi-decl `pp_s` PairStrJsonTy PPS\
-    ( PairMatchF PPS =
-        match PPS (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
-          [ fun `ts` StrTy (ts\ fun `ar` JSONTy (ar\ ArrMatchF ts ar))
+
+  % Match outer pair (tag, inner_json)
+  @pi-decl `pp` PairStrJsonTy PP\
+    ( PairMatchF PP =
+        match PP (fun `_` PairStrJsonTy (_\ {{Result _ string}}))
+          [ fun `t` StrTy (t\ fun `v` JSONTy (v\ InnerMatchF t v))
           ] ),
-  % Step 3: build the rest-map match (on rr)
-  @pi-decl `pp_r` PairStrJsonTy PPR\
-  @pi-decl `rr_s` MapStrJsonTy  RRS\
-    ( RestMatchF PPR RRS =
-        match RRS (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
-          [ PairMatchF PPR
+
+  % Match rest of outer map: must be exactly nil (singleton map)
+  @pi-decl `pp2` PairStrJsonTy PP2\
+  @pi-decl `rr` MapStrJsonTy RR\
+    ( RestMatchF PP2 RR =
+        match RR (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+          [ PairMatchF PP2
           , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
           ] ),
-  % Step 4: build the map match (on mm)
-  @pi-decl `mm_s` MapStrJsonTy MMS\
-    ( MapMatchF MMS =
-        match MMS (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
+
+  % Match outer map: [(tag, inner)]
+  @pi-decl `mm` MapStrJsonTy MM\
+    ( MapMatchF MM =
+        match MM (fun `_` MapStrJsonTy (_\ {{Result _ string}}))
           [ ErrNoCons
           , fun `p` PairStrJsonTy (pp\ fun `rm` MapStrJsonTy (rr\ RestMatchF pp rr))
           ] ),
-  % Step 5: build the full Body
+
+  % Full JSON match
+  % String branch only active when there are enum constructors
+  if (EnumKns = [])
+     (StrBranch = fun `_` StrTy (_\ ErrNoCons))
+     (StrBranch = fun `s` StrTy (s\ StrDispF s)),
+  if (WithArgsKns = [])
+     (ObjBranch = fun `_` MapStrJsonTy (_\ ErrNoCons))
+     (ObjBranch = fun `m` MapStrJsonTy (mm\ MapMatchF mm)),
   Body = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
-    [ fun `m` MapStrJsonTy (mm\ MapMatchF mm)
+    [ ObjBranch
     , fun `_` ListJSONTy   (_\ ErrNoCons)
-    , fun `_` StrTy        (_\ ErrNoCons)
+    , StrBranch
     , fun `_` NatTy        (_\ ErrNoCons)
     , fun `_` BoolTy       (_\ ErrNoCons)
     ].
