@@ -37,8 +37,14 @@ Ltac fix_eq_ext :=
    - canonical_jsonification rewrites from_JSON(to_JSON x) = res x
    - string_dec on equal strings reduces to left refl *)
 Ltac derive_jsonifiable_proof :=
-  let v := fresh "v" in
-  intro v; induction v; simpl;
+  (* intro all forall-bound variables (type params, TC instances, the inductive value) *)
+  intros;
+  (* In Rocq 9, `match goal` tries hypotheses newest-to-oldest.
+     After intros, the inductive value is the LAST (newest) introduced, so
+     `match goal` finds it first. *)
+  match goal with
+  | v : _ |- _ => induction v
+  end; simpl;
   repeat match goal with
   | IH : ?from_json (?to_json _) = _ |- _ => rewrite IH
   end;
@@ -102,3 +108,30 @@ Check tree_Jsonifiable.
 Compute (to_JSON (Node Leaf 42 Leaf) : JSON).
 Compute (from_JSON (to_JSON (Node Leaf 42 Leaf)) : Result tree string).
 Compute (from_JSON (to_JSON (Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf))) : Result tree string).
+
+(* ===== Test 4: Parametric recursive type ===== *)
+(* Note: Set Uniform Inductive Parameters (transitively from derive.std) means we
+   must use arrow syntax for constructor value fields, NOT (v : A) syntax. *)
+Inductive jtree (A : Type) :=
+  | JLeaf : jtree
+  | JNode : A -> jtree -> jtree -> jtree.
+Arguments JLeaf {A}.
+Arguments JNode {A} _ _ _.
+
+Elpi Query lp:{{
+  coq.locate "jtree" (indt Ind),
+  coq.env.indt Ind _IsInd ParNo UParNo Arity Kns KTs,
+  coq.say "jtree ParNo=" ParNo "UParNo=" UParNo,
+  coq.say "Arity=" Arity,
+  coq.say "Kns=" Kns,
+  coq.say "KTs=" KTs
+}}.
+
+derive jtree.
+Elpi derive.jsonifiable jtree.
+(* Manual roundtrip test to verify the derivation worked *)
+Check jtree_Jsonifiable.
+Set Typeclasses Debug.
+Set Typeclasses Depth 10.
+Compute (to_JSON (JNode 42 JLeaf JLeaf) : JSON).
+Compute (from_JSON (to_JSON (JNode 42 JLeaf JLeaf)) : Result (jtree nat) string).

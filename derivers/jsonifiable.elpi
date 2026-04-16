@@ -97,9 +97,12 @@ apply-to-prods _ T T.
 % to fill with the inductive's type parameters).
 % ============================================================================
 
+% Generate N fresh (uninstantiated) Elpi variables for coq.elaborate-skeleton.
+% Each H in the list is a fresh logical variable — coq.elaborate-skeleton turns
+% them into Coq evars and fills them from the local context.
 func make-holes int -> list term.
 make-holes 0 [] :- !.
-make-holes N [hole|Rest] :- N > 0, !, N1 is N - 1, make-holes N1 Rest.
+make-holes N [_H|Rest] :- N > 0, !, N1 is N - 1, make-holes N1 Rest.
 
 % ============================================================================
 % Build a typed Coq list: cons x1 (cons x2 ... nil) at type ElemTy
@@ -322,7 +325,8 @@ build-ctor-body _Ind _SelfRef K 0 [] Args0 ErrTerm AccRev Body :- !,
     ].
 
 % Self-reference arg (exact indt, no params): use SelfRef ja for recursive decode
-build-ctor-body Ind SelfRef K N [(global (indt Ind)) as IndTy|ArgTys] Args0 ErrTerm AccRev Body :- !,
+build-ctor-body Ind SelfRef K N [IndTy|ArgTys] Args0 ErrTerm AccRev Body :-
+  IndTy = global (indt Ind), !,
   N > 0, N1 is N - 1,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
@@ -338,7 +342,8 @@ build-ctor-body Ind SelfRef K N [(global (indt Ind)) as IndTy|ArgTys] Args0 ErrT
     ].
 
 % Parametric self-reference: app [global (indt Ind) | Ps] — the ArgTy is already IndTy_A
-build-ctor-body Ind SelfRef K N [(app [(global (indt Ind)) | _] as IndTy)|ArgTys] Args0 ErrTerm AccRev Body :- !,
+build-ctor-body Ind SelfRef K N [IndTy|ArgTys] Args0 ErrTerm AccRev Body :-
+  IndTy = app [global (indt Ind) | _], !,
   N > 0, N1 is N - 1,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
@@ -373,15 +378,16 @@ build-ctor-body Ind SelfRef K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
 % string_dec dispatch helpers.
 % ============================================================================
 
-func build-string-dispatch-chain term, list constructor, term -> term.
-build-string-dispatch-chain _Tag [] Default Default.
-build-string-dispatch-chain Tag [K|Ks] Default Body :-
+func build-string-dispatch-chain list term, term, list constructor, term -> term.
+build-string-dispatch-chain _Params _Tag [] Default Default.
+build-string-dispatch-chain Params Tag [K|Ks] Default Body :-
   coq.gref->id (indc K) KName,
   string_to_coq_string_term KName KNameTerm,
   coq.locate "string_dec" (const SumboolFnC),
   coq.locate "res" (indc ResC),
-  KApp = app [global (indc ResC), _, _, global (indc K)],
-  build-string-dispatch-chain Tag Ks Default RestBody,
+  make-holes {std.length Params} KHoles,
+  KApp = app [global (indc ResC), _, _, app [global (indc K) | KHoles]],
+  build-string-dispatch-chain Params Tag Ks Default RestBody,
   SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
@@ -418,8 +424,9 @@ build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
     , fun `_` PairTy (_\ fun `_` KvsTy (_\ ErrTerm)) % cons → err too many
     ].
 
-% Self-reference arg (exact indt): decode with SelfRef; capture IndTy via `as`
-build-ctor-body-kvs Ind Self K N [(global (indt Ind)) as IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+% Self-reference arg (exact indt): decode with SelfRef
+build-ctor-body-kvs Ind Self K N [IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
+  IndTy = global (indt Ind), !,
   N > 0, N1 is N - 1,
   str-ty StrTy,
   json-ty JSONTy,
@@ -439,8 +446,9 @@ build-ctor-body-kvs Ind Self K N [(global (indt Ind)) as IndTy|ArgTys] Kvs0 ErrT
             ]))
     ].
 
-% Parametric self-reference: app [global (indt Ind) | Ps]; capture full IndTy_A via `as`
-build-ctor-body-kvs Ind Self K N [(app [(global (indt Ind))|_] as IndTy)|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+% Parametric self-reference: app [global (indt Ind) | Ps]
+build-ctor-body-kvs Ind Self K N [IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
+  IndTy = app [global (indt Ind) | _], !,
   N > 0, N1 is N - 1,
   str-ty StrTy,
   json-ty JSONTy,
@@ -499,7 +507,7 @@ build-obj-dispatch Ind Params Self [K|Ks] Tag Kvs Default Body :-
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
   build-ctor-body-kvs Ind Self K Arity ArgTys Kvs ErrTerm [] ArmBody,
-  build-obj-dispatch Ind Self Ks Tag Kvs Default RestBody,
+  build-obj-dispatch Ind Params Self Ks Tag Kvs Default RestBody,
   SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
@@ -516,8 +524,8 @@ build-obj-dispatch Ind Params Self [K|Ks] Tag Kvs Default Body :-
 %   JSON_Object [(t, JSON_Object kvs)]  → ctors with args
 % ============================================================================
 
-func build-from-json-body inductive, term, term, list constructor, term -> term.
-build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
+func build-from-json-body inductive, list term, term, term, list constructor, term -> term.
+build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
   str-ty StrTy,
   nat-ty NatTy,
   bool-ty BoolTy,
@@ -530,20 +538,23 @@ build-from-json-body Ind SelfRef JSONTy Kns JS Body :-
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
 
-  % Split constructors by arity.
+  % Split constructors by arity — apply Params first so count-ctor-args sees only value args.
   std.partition Kns
-    (k\ sigma KTy A Ts\ coq.env.indc k _ _ _ KTy, count-ctor-args KTy A Ts, A = 0)
+    (k\ sigma FullKTy KTy A Ts\
+       coq.env.indc k _ _ _ FullKTy,
+       apply-to-prods Params FullKTy KTy,
+       count-ctor-args KTy A Ts, A = 0)
     EnumKns WithArgsKns,
 
   % --- String branch: dispatch for 0-arg (enum) constructors ---
   @pi-decl `s` StrTy S\
-    build-string-dispatch-chain S EnumKns ErrUnrec (StrDispF S),
+    build-string-dispatch-chain Params S EnumKns ErrUnrec (StrDispF S),
 
   % --- Object branch: dispatch for N-arg constructors ---
   % Inner object kvs dispatch: ObjDispF tag kvs = match string_dec ...
   @pi-decl `tag` StrTy TAG\
   @pi-decl `kvs` MapStrJsonTy KVS\
-    build-obj-dispatch Ind SelfRef WithArgsKns TAG KVS ErrUnrec (ObjDispF TAG KVS),
+    build-obj-dispatch Ind Params SelfRef WithArgsKns TAG KVS ErrUnrec (ObjDispF TAG KVS),
 
   % Match inner JSON_Object value: must be JSON_Object kvs
   @pi-decl `tag2` StrTy TAG2\
@@ -614,7 +625,7 @@ build-from-json-term Ind Params (fun `js` JSONTy (js\ R js)) :-
   json-ty JSONTy,
   @pi-decl `js` JSONTy JS\
     % SelfRef unused for non-recursive types; pass dummy term (global indt)
-    build-from-json-body Ind (global (indt Ind)) JSONTy Kns JS (R JS).
+    build-from-json-body Ind Params (global (indt Ind)) JSONTy Kns JS (R JS).
 
 % Recursive: fix from_json (js : JSON) {struct js} := match js with ...
 % Uses @pi-decl to get pi-constants for HO unification: R Self JS = body.
@@ -632,8 +643,95 @@ build-from-json-term Ind Params
     % Pass R Self JS as the output — this puts the output in "pattern form"
     % (applied to pi-constants) so func's mode system can do HO-unification.
     % After build-from-json-body runs, R is unified with fn\ js\ match js ... .
-    std.assert! (build-from-json-body Ind Self JSONTy Kns JS (R Self JS))
+    std.assert! (build-from-json-body Ind Params Self JSONTy Kns JS (R Self JS))
       "build-from-json-body failed".
+
+% ============================================================================
+% Parametric-wrapping helpers
+%
+% All three predicates have the same recursive structure:
+%   - Base case (N=0): rev the accumulated params and build the inner term
+%   - Recursive case: introduce @pi-decl for the type param + Jsonifiable instance,
+%     recurse, then wrap the result in fun/prod binders.
+%
+% RevTPs:  accumulated type-param terms, reversed (gets std.rev'd at base case)
+% RevTCPs: accumulated TC-instance terms, reversed
+% ============================================================================
+
+% build-fun-wrapped-skeletons: produces to_json and from_json skeletons
+% wrapped in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
+pred build-fun-wrapped-skeletons
+  i:inductive, i:int, i:term, i:list term, i:list term, o:term, o:term.
+
+build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :- !,
+  std.rev RevTPs Params,
+  build-to-json-term Ind Params TJSkel,
+  std.assert! (build-from-json-term Ind Params FJSkel) "build-from-json-term failed".
+
+build-fun-wrapped-skeletons Ind N (prod PName PTy RestArity) RevTPs RevTCPs TJSkel FJSkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+  @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
+    build-fun-wrapped-skeletons Ind N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+      (TJInner A JA) (FJInner A JA),
+  TJSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ TJInner a ja)),
+  FJSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ FJInner a ja)).
+
+% build-prod-wrapped-proof-type: builds the canonical-roundtrip proof TYPE
+% (all universal quantifiers, including over params), given already-registered TJC/FJC.
+pred build-prod-wrapped-proof-type
+  i:inductive, i:constant, i:constant, i:int, i:term, i:list term, i:list term, o:term.
+
+build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  coq.mk-app (global (indt Ind)) TPs IndTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
+  coq.locate "res" (indc ResC),
+  std.append TPs TCPs AllParams,
+  % TJC A JA ... applied to all params, then to the value
+  TJApp = app [global (const TJC) | AllParams],   % TJC A JA : IndTy -> JSON
+  FJApp = app [global (const FJC) | AllParams],   % FJC A JA : JSON -> Result IndTy string
+  ProofTySkel = prod `v` IndTy (v\
+    app [ {{@eq}}, ResultTy
+        , app [FJApp, app [TJApp, v]]
+        , app [global (indc ResC), _, _, v]
+        ]).
+
+build-prod-wrapped-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+  @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
+    build-prod-wrapped-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+      (InnerTy A JA),
+  ProofTySkel = prod PName PTy (a\ prod `JS` {{ Jsonifiable lp:a }} (ja\ InnerTy a ja)).
+
+% build-fun-wrapped-instance: builds the Build_Jsonifiable application wrapped
+% in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
+pred build-fun-wrapped-instance
+  i:inductive, i:constant, i:constant, i:constant,
+  i:int, i:term, i:list term, i:list term, o:term.
+
+build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  coq.mk-app (global (indt Ind)) TPs IndTy,
+  std.append TPs TCPs AllParams,
+  coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
+  InstSkel = app [ global (indc BuildGR), IndTy
+                 , app [global (const TJC)  | AllParams]
+                 , app [global (const FJC)  | AllParams]
+                 , app [global (const PrfC) | AllParams]
+                 ].
+
+build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+  @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
+    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+      (InnerInst A JA),
+  InstSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ InnerInst a ja)).
 
 % ============================================================================
 % Phase 4: Main entry point
@@ -641,18 +739,18 @@ build-from-json-term Ind Params
 
 func main gref, string -> list prop.
 main (indt Ind) Prefix C :- std.do! [
+  coq.env.indt Ind _IsInd ParNo _UParNo Arity _Kns _KTs,
+  coq.say "derive.jsonifiable: deriving for" Ind "with" ParNo "params",
 
-  % --- Phase 1: Build to_json ---
-  build-to-json-term Ind [] ToJsonSkel,
+  % --- Phase 1 & 2: Build to_json and from_json ---
+  % build-fun-wrapped-skeletons with ParNo=0 degenerates to the non-parametric case.
+  build-fun-wrapped-skeletons Ind ParNo Arity [] [] ToJsonSkel FromJsonSkel,
   std.assert-ok! (coq.elaborate-skeleton ToJsonSkel ToJsonTy ToJson)
     "derive.jsonifiable: to_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "to_json") TJName,
   coq.env.add-const TJName ToJson ToJsonTy @transparent! TJC,
   coq.say "derive.jsonifiable: registered" TJName,
 
-  % --- Phase 2: Build from_json ---
-  std.assert! (build-from-json-term Ind [] FromJsonSkel)
-    "derive.jsonifiable: build-from-json-term failed",
   std.assert-ok! (coq.elaborate-skeleton FromJsonSkel FromJsonTy FromJson)
     "derive.jsonifiable: from_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "from_json") FJName,
@@ -660,31 +758,28 @@ main (indt Ind) Prefix C :- std.do! [
   coq.say "derive.jsonifiable: registered" FJName,
 
   % --- Phase 3: Prove canonical_jsonification via Ltac1 ---
-  str-ty StrTy,
-  coq.mk-app (global (indt Ind)) [] IndTy,
-  coq.locate "res" (indc ResC),
-  ResultTy = {result-ty IndTy StrTy},
-  ProofTy = prod `a` IndTy (a\
-    app [ {{@eq}}, ResultTy
-        , app [global (const FJC), app [global (const TJC), a]]
-        , app [global (indc ResC), _, _, a]
-        ]),
+  build-prod-wrapped-proof-type Ind TJC FJC ParNo Arity [] [] ProofTy,
+  coq.say "derive.jsonifiable: proof type =" ProofTy,
   % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
   std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
     "derive.jsonifiable: canonical proof typecheck failed",
-  coq.ltac.collect-goals Bo [G] [],
-  coq.ltac.open (g\gl\ coq.ltac.call "derive_jsonifiable_proof" [] g gl ok) G [],
+  coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
+  coq.ltac.collect-goals Bo Goals SGoals,
+  coq.say "derive.jsonifiable: goals=" Goals "shelved=" SGoals,
+  Goals = [G|_],
+  coq.say "derive.jsonifiable: running tactic on goal" G,
+  coq.ltac.open (g\gl\
+    coq.say "inside tactic, gl before=" gl,
+    coq.ltac.call "derive_jsonifiable_proof" [] g gl ok,
+    coq.say "inside tactic, done") G [],
+  coq.say "derive.jsonifiable: tactic done",
   coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
   coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
   coq.say "derive.jsonifiable: proved" PrfName,
 
   % --- Phase 4: Build Jsonifiable instance ---
-  coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc _BuildJGR),
-  Instance = {{ @Build_Jsonifiable lp:IndTy
-                                   lp:{{global (const TJC)}}
-                                   lp:{{global (const FJC)}}
-                                   lp:{{global (const PrfC)}} }},
-  std.assert-ok! (coq.elaborate-skeleton Instance InstanceTy InstanceElab)
+  build-fun-wrapped-instance Ind TJC FJC PrfC ParNo Arity [] [] InstSkel,
+  std.assert-ok! (coq.elaborate-skeleton InstSkel InstanceTy InstanceElab)
     "derive.jsonifiable: instance elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
   coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
