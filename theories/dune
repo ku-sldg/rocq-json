@@ -6,7 +6,14 @@
 (coq.theory
  (name RocqJSON)
  (package rocq-json)
- (theories rocq_json_derivers)
+ (theories
+  rocq_json_derivers
+  Stdlib
+  Ltac2
+  RocqCandy
+  elpi
+  elpi_elpi
+  elpi.apps.derive.elpi)
  (synopsis
   "A Rocq JSON Library, built with automation and extractability in mind"))
 

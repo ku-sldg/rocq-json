@@ -829,7 +829,7 @@ build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs 
 func main gref, string -> list prop.
 main (indt Ind) Prefix C :- std.do! [
   coq.env.indt Ind _IsInd ParNo _UParNo Arity _Kns _KTs,
-  coq.say "derive.jsonifiable: deriving for" Ind "with" ParNo "params",
+  % coq.say "derive.jsonifiable: deriving for" Ind "with" ParNo "params",
 
   % --- Phase 1 & 2: Build to_json and from_json ---
   % build-fun-wrapped-skeletons with ParNo=0 degenerates to the non-parametric case.
@@ -838,33 +838,34 @@ main (indt Ind) Prefix C :- std.do! [
     "derive.jsonifiable: to_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "to_json") TJName,
   coq.env.add-const TJName ToJson ToJsonTy @transparent! TJC,
-  coq.say "derive.jsonifiable: registered" TJName,
+  % coq.say "derive.jsonifiable: registered" TJName,
 
   std.assert-ok! (coq.elaborate-skeleton FromJsonSkel FromJsonTy FromJson)
     "derive.jsonifiable: from_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "from_json") FJName,
   coq.env.add-const FJName FromJson FromJsonTy @transparent! FJC,
-  coq.say "derive.jsonifiable: registered" FJName,
+  % coq.say "derive.jsonifiable: registered" FJName,
 
   % --- Phase 3: Prove canonical_jsonification via Ltac1 ---
   build-prod-wrapped-proof-type Ind TJC FJC ParNo Arity [] [] ProofTy,
-  coq.say "derive.jsonifiable: proof type =" ProofTy,
+  % coq.say "derive.jsonifiable: proof type =" ProofTy,
   % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
   std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
     "derive.jsonifiable: canonical proof typecheck failed",
-  coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
-  coq.ltac.collect-goals Bo Goals SGoals,
-  coq.say "derive.jsonifiable: goals=" Goals "shelved=" SGoals,
+  % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
+  coq.ltac.collect-goals Bo Goals _SGoals,
+  % coq.say "derive.jsonifiable: goals=" Goals "shelved=" SGoals,
   Goals = [G|_],
-  coq.say "derive.jsonifiable: running tactic on goal" G,
+  % coq.say "derive.jsonifiable: running tactic on goal" G,
   coq.ltac.open (g\gl\
-    coq.say "inside tactic, gl before=" gl,
-    coq.ltac.call "derive_jsonifiable_proof" [] g gl ok,
-    coq.say "inside tactic, done") G [],
-  coq.say "derive.jsonifiable: tactic done",
+    % coq.say "inside tactic, gl before=" gl,
+    coq.ltac.call "derive_jsonifiable_proof" [] g gl ok
+    % , coq.say "inside tactic, done"
+  ) G [],
+  % coq.say "derive.jsonifiable: tactic done",
   coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
   coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
-  coq.say "derive.jsonifiable: proved" PrfName,
+  % coq.say "derive.jsonifiable: proved" PrfName,
 
   % --- Phase 4: Build Jsonifiable instance ---
   build-fun-wrapped-instance Ind TJC FJC PrfC ParNo Arity [] [] InstSkel,
@@ -873,7 +874,7 @@ main (indt Ind) Prefix C :- std.do! [
   coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
   coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
   coq.TC.declare-instance (const InstC) 0,
-  coq.say "derive.jsonifiable: declared TC instance" InstName,
+  % coq.say "derive.jsonifiable: declared TC instance" InstName,
 
   coq.elpi.accumulate _ "derive.jsonifiable.db"
     (clause _ _ (jsonifiable-done (indt Ind))),

@@ -18,7 +18,7 @@ Elpi Db derive.jsonifiable.db lp:{{
   pred jsonifiable-done o:gref.
 }}.
 
-(* NOTE: This is called by jsonifiable.elpi to solve the main goal of deriving JSON_Derive.Jsonifiable for a given inductive type. 
+(* NOTE: This is called by "jsonifiable.elpi" to solve the main goal of deriving JSON_Derive.Jsonifiable for a given inductive type. 
 
   Main canonical roundtrip proof tactic.
    Uses induction to handle recursive types via IH.
@@ -89,8 +89,8 @@ derive jtree.
 
 (* Manual roundtrip test to verify the derivation worked *)
 Check jtree_Jsonifiable.
-Set Typeclasses Debug.
-Set Typeclasses Depth 10.
+(* Set Typeclasses Debug.
+Set Typeclasses Depth 10. *)
 Compute (to_JSON (JNode 42 JLeaf JLeaf) : JSON).
 Compute (from_JSON (to_JSON (JNode 42 JLeaf JLeaf)) : Result (jtree nat) string).
 
