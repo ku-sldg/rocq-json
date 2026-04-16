@@ -131,7 +131,19 @@ derive jtree.
 Elpi derive.jsonifiable jtree.
 (* Manual roundtrip test to verify the derivation worked *)
 Check jtree_Jsonifiable.
-Set Typeclasses Debug.
-Set Typeclasses Depth 10.
+(* Set Typeclasses Debug.
+Set Typeclasses Depth 10. *)
 Compute (to_JSON (JNode 42 JLeaf JLeaf) : JSON).
 Compute (from_JSON (to_JSON (JNode 42 JLeaf JLeaf)) : Result (jtree nat) string).
+
+Inductive ab_tree (A B : Type) :=
+  | ABLeaf : ab_tree
+  | ABNode (a : A) (tree' : ab_tree) (b : B) : ab_tree.
+Arguments ABLeaf {A B}.
+Arguments ABNode {A B} _ _ _.
+
+derive ab_tree.
+Elpi derive.jsonifiable ab_tree.
+Check ab_tree_Jsonifiable.
+Compute (to_JSON (ABNode 1 ABLeaf true) : JSON).
+Compute (from_JSON (to_JSON (ABNode 1 ABLeaf true)) : Result (ab_tree nat bool) string).

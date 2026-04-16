@@ -93,6 +93,17 @@ apply-to-prods [X|Xs] (prod _ _ Body) T :- !, apply-to-prods Xs (Body X) T.
 apply-to-prods _ T T.
 
 % ============================================================================
+% interleave: zip two lists pairwise — [A,B] + [JA,JB] → [A,JA,B,JB].
+% Used to build the correct argument list for parametric functions:
+%   TJC : forall A, Jsonifiable A -> forall B, Jsonifiable B -> ...
+%   expects args [A, JS_A, B, JS_B], NOT [A, B, JS_A, JS_B].
+% ============================================================================
+
+func interleave list term, list term -> list term.
+interleave [] [] [].
+interleave [A|As] [B|Bs] [A, B | Rest] :- interleave As Bs Rest.
+
+% ============================================================================
 % make-holes: generate a list of N `hole` terms (for coq.elaborate-skeleton
 % to fill with the inductive's type parameters).
 % ============================================================================
@@ -120,6 +131,86 @@ build-coq-list ElemTy [H|T] (app [global ConsGR, ElemTy, H, Rest]) :-
 %   0-arg ctors  → JSON_String "CtorName"
 %   N-arg ctors  → JSON_Object [("CtorName", JSON_Object [("n1",j1);...])]
 % ============================================================================
+
+% ============================================================================
+% Unique argument name generation for JSON keys
+%
+% Strategy:
+%   1. Extract (raw_name, arg_type) pairs from the constructor's prod-chain.
+%   2. For anonymous args ("_"): derive a base name from the type's first letter.
+%   3. Deduplicate: if a base name appears more than once, add a 1-based counter
+%      to ALL occurrences (e.g., "n", "n" → "n1", "n2").
+%      Names that are already unique are kept as-is.
+% ============================================================================
+
+% type-to-name-prefix: infer a short name from a Coq type term.
+func type-to-name-prefix term -> string.
+type-to-name-prefix (global (indt GR)) P :- !,
+  coq.gref->id (indt GR) TName,
+  P = substring TName 0 1.
+type-to-name-prefix (app [global (indt GR) | _]) P :- !,
+  coq.gref->id (indt GR) TName,
+  P = substring TName 0 1.
+type-to-name-prefix _ "v".   % fallback: type variable or unknown
+
+% resolve-arg-name: if raw name is "_" use type prefix, otherwise keep it.
+func resolve-arg-name string, term -> string.
+resolve-arg-name "_" Ty Name :- !, type-to-name-prefix Ty Name.
+resolve-arg-name N _ N.
+
+% count-in-list: count occurrences of S in L (deterministic).
+func count-in-list string, list string -> int.
+count-in-list _ [] 0.
+count-in-list S [S|T] N :- !, count-in-list S T N1, N is N1 + 1.
+count-in-list S [_|T] N :- count-in-list S T N.
+
+% assoc-get-opt: lookup key in alist, returning option int (never fails).
+func assoc-get-opt string, list (pair string int) -> option int.
+assoc-get-opt _ [] none.
+assoc-get-opt K [pr K V|_] (some V) :- !.
+assoc-get-opt K [_|Rest] R :- assoc-get-opt K Rest R.
+
+% assoc-set: update or insert key in alist (deterministic).
+func assoc-set string, int, list (pair string int) -> list (pair string int).
+assoc-set K V [] [pr K V].
+assoc-set K V [pr K _|Rest] [pr K V|Rest] :- !.
+assoc-set K V [Other|Rest] [Other|NewRest] :- assoc-set K V Rest NewRest.
+
+% deduplicate-names: add numeric suffixes to names that appear more than once.
+%   All: the full base-name list (for counting total occurrences).
+%   Remaining: names still to process.
+%   Ctrs: alist tracking next available index per name.
+func deduplicate-names list string, list string, list (pair string int) -> list string.
+deduplicate-names _ [] _ [].
+deduplicate-names All [N|Ns] Ctrs [UN|UNs] :-
+  Total = {count-in-list N All},
+  if (Total = 1)
+    % Unique: use name as-is.
+    (UN = N, NewCtrs = Ctrs)
+    % Duplicate: assign running counter.
+    (Opt = {assoc-get-opt N Ctrs},
+     if (Opt = some Idx)
+       (UN = N ^ {std.any->string Idx},
+        NewCtrs = {assoc-set N {calc (Idx + 1)} Ctrs})
+       (UN = N ^ "1",
+        NewCtrs = {assoc-set N 2 Ctrs})),
+  deduplicate-names All Ns NewCtrs UNs.
+
+% unique-names-from-pairs: the full pipeline — resolve anonyms then deduplicate.
+%   Input: list of (raw_name, arg_type) pairs.
+%   Output: list of unique strings suitable as JSON keys.
+func unique-names-from-pairs list (pair string term) -> list string.
+unique-names-from-pairs Pairs UniqueNames :-
+  std.map Pairs (p\ n\ sigma S Ty\ p = pr S Ty, resolve-arg-name S Ty n) BaseNames,
+  UniqueNames = {deduplicate-names BaseNames BaseNames []}.
+
+% Extract argument (name, type) pairs from a constructor's prod-chain.
+% `name` is opaque in coq-elpi; use coq.name->id to get the string.
+func extract-name-type-pairs term -> list (pair string term).
+extract-name-type-pairs (prod N ArgTy Body) [pr S ArgTy | Rest] :- !,
+  coq.name->id N S,
+  pi x\ extract-name-type-pairs (Body x) Rest.
+extract-name-type-pairs _ [].
 
 % Extract argument names from a constructor's prod-chain.
 % `name` is opaque in coq-elpi; use coq.name->id to get the string.
@@ -205,7 +296,8 @@ to-json-branch-norec Params K _KTy Vars VarTys Body :-
   coq.gref->id (indc KI) KName,
   coq.env.indc KI _ _ _ FullKTy,
   apply-to-prods Params FullKTy AppliedKTy,
-  extract-prod-names AppliedKTy ArgNames,
+  extract-name-type-pairs AppliedKTy NameTypePairs,
+  unique-names-from-pairs NameTypePairs ArgNames,
   build-to-json-args Vars VarTys ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
@@ -221,7 +313,8 @@ to-json-branch-rec Ind SelfRef Params K _KTy Vars VarTys Body :-
   coq.gref->id (indc KI) KName,
   coq.env.indc KI _ _ _ FullKTy,
   apply-to-prods Params FullKTy AppliedKTy,
-  extract-prod-names AppliedKTy ArgNames,
+  extract-name-type-pairs AppliedKTy NameTypePairs,
+  unique-names-from-pairs NameTypePairs ArgNames,
   build-to-json-args-rec Ind SelfRef Vars VarTys ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
@@ -230,8 +323,7 @@ func build-to-json-term inductive, list term -> term.
 % Non-recursive case: fun a => match a with ...
 build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
   not (coq.env.recursive? Ind), !,
-  std.rev Params RevParams,
-  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
@@ -243,8 +335,7 @@ build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
 build-to-json-term Ind Params
     {{ fix self (a : lp:IndTy) {struct a} : lp:JSONTy := lp:(R self a) }} :-
   coq.env.recursive? Ind, !,
-  std.rev Params RevParams,
-  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   @pi-decl `self` {{ lp:IndTy -> lp:JSONTy }} Self\
   @pi-decl `a` IndTy A\
@@ -620,8 +711,7 @@ func build-from-json-term inductive, list term -> term.
 build-from-json-term Ind Params (fun `js` JSONTy (js\ R js)) :-
   not (coq.env.recursive? Ind), !,
   coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
-  std.rev Params RevParams,
-  coq.mk-app (global (indt Ind)) RevParams _IndTy,
+  coq.mk-app (global (indt Ind)) Params _IndTy,
   json-ty JSONTy,
   @pi-decl `js` JSONTy JS\
     % SelfRef unused for non-recursive types; pass dummy term (global indt)
@@ -633,8 +723,7 @@ build-from-json-term Ind Params
     {{ fix from_json (js : lp:JSONTy) {struct js} : lp:ResultTy := lp:(R from_json js) }} :-
   coq.env.recursive? Ind, !,
   coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
-  std.rev Params RevParams,
-  coq.mk-app (global (indt Ind)) RevParams IndTy,
+  coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   str-ty StrTy,
   result-ty IndTy StrTy ResultTy,
@@ -689,7 +778,7 @@ build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
   str-ty StrTy,
   result-ty IndTy StrTy ResultTy,
   coq.locate "res" (indc ResC),
-  std.append TPs TCPs AllParams,
+  interleave TPs TCPs AllParams,
   % TJC A JA ... applied to all params, then to the value
   TJApp = app [global (const TJC) | AllParams],   % TJC A JA : IndTy -> JSON
   FJApp = app [global (const FJC) | AllParams],   % FJC A JA : JSON -> Result IndTy string
@@ -717,7 +806,7 @@ build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
   coq.mk-app (global (indt Ind)) TPs IndTy,
-  std.append TPs TCPs AllParams,
+  interleave TPs TCPs AllParams,
   coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
   InstSkel = app [ global (indc BuildGR), IndTy
                  , app [global (const TJC)  | AllParams]
