@@ -82,6 +82,26 @@ is-self-reference Ind (global (indt Ind)) :- !.
 is-self-reference Ind (app [global (indt Ind) | _]) :- !.
 
 % ============================================================================
+% apply-to-prods: substitute a list of terms into leading prod-binders.
+% Used to instantiate the type params in constructor types.
+%   apply-to-prods [A1; A2] (forall A1, forall A2, Body A1 A2) = Body A1 A2
+% ============================================================================
+
+func apply-to-prods list term, term -> term.
+apply-to-prods [] T T :- !.
+apply-to-prods [X|Xs] (prod _ _ Body) T :- !, apply-to-prods Xs (Body X) T.
+apply-to-prods _ T T.
+
+% ============================================================================
+% make-holes: generate a list of N `hole` terms (for coq.elaborate-skeleton
+% to fill with the inductive's type parameters).
+% ============================================================================
+
+func make-holes int -> list term.
+make-holes 0 [] :- !.
+make-holes N [hole|Rest] :- N > 0, !, N1 is N - 1, make-holes N1 Rest.
+
+% ============================================================================
 % Build a typed Coq list: cons x1 (cons x2 ... nil) at type ElemTy
 % ============================================================================
 
@@ -164,33 +184,41 @@ build-to-json-args-rec Ind SelfRef [V|Vs] [(app [global (indt Ind)|_])|VTys] [(a
 build-to-json-args-rec Ind SelfRef [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
   build-to-json-args-rec Ind SelfRef Vs VTys Rs.
 
-func to-json-branch-norec term, term, list term, list term -> term.
+% Branch functions take Params (the type-param pi-consts) so they can apply them
+% to the full constructor type before extracting argument names.
+% coq.build-match passes (K, KTy, Vars, VarTys) where K already has params applied;
+% but for name extraction we use the global KTy (from coq.env.indc) which still has
+% the leading param prods. Applying Params strips those to get just the value args.
+
+func to-json-branch-norec list term, term, term, list term, list term -> term.
 % 0-arg constructor → JSON_String "KName"
-to-json-branch-norec K _KTy [] [] Body :- !,
+to-json-branch-norec _Params K _KTy [] [] Body :- !,
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
   build-json-string-ctor KName Body.
 % N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
-to-json-branch-norec K _KTy Vars VarTys Body :-
+to-json-branch-norec Params K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
   coq.env.indc KI _ _ _ FullKTy,
-  extract-prod-names FullKTy ArgNames,
+  apply-to-prods Params FullKTy AppliedKTy,
+  extract-prod-names AppliedKTy ArgNames,
   build-to-json-args Vars VarTys ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
-func to-json-branch-rec inductive, term, term, term, list term, list term -> term.
+func to-json-branch-rec inductive, term, list term, term, term, list term, list term -> term.
 % 0-arg constructor → JSON_String "KName"
-to-json-branch-rec _Ind _SelfRef K _KTy [] [] Body :- !,
+to-json-branch-rec _Ind _SelfRef _Params K _KTy [] [] Body :- !,
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
   build-json-string-ctor KName Body.
 % N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
-to-json-branch-rec Ind SelfRef K _KTy Vars VarTys Body :-
+to-json-branch-rec Ind SelfRef Params K _KTy Vars VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
   coq.gref->id (indc KI) KName,
   coq.env.indc KI _ _ _ FullKTy,
-  extract-prod-names FullKTy ArgNames,
+  apply-to-prods Params FullKTy AppliedKTy,
+  extract-prod-names AppliedKTy ArgNames,
   build-to-json-args-rec Ind SelfRef Vars VarTys ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
@@ -205,7 +233,7 @@ build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
       (_\_\_\ r\ r = JSONTy)
-      to-json-branch-norec
+      (k\ kt\ vs\ vts\ to-json-branch-norec Params k kt vs vts)
       (R A).
 
 % Recursive case: fix self a => match a with ...
@@ -219,7 +247,7 @@ build-to-json-term Ind Params
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
       (_\_\_\ r\ r = JSONTy)
-      (to-json-branch-rec Ind Self)
+      (k\ kt\ vs\ vts\ to-json-branch-rec Ind Self Params k kt vs vts)
       (R Self A).
 
 % ============================================================================
@@ -277,23 +305,27 @@ count-ctor-args _ 0 [].
 func build-ctor-body inductive, term, constructor, int, list term, term, term, list term -> term.
 
 % Base case N=0: match nil => res (K acc), cons => err arity
+% Use make-holes for the constructor's type-parameter arguments so
+% coq.elaborate-skeleton can fill them in from context.
 build-ctor-body _Ind _SelfRef K 0 [] Args0 ErrTerm AccRev Body :- !,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
   std.rev AccRev Acc,
-  coq.mk-app (global (indc K)) Acc KApp,
+  coq.env.indc K KParNo _ _ _,
+  make-holes KParNo KHoles,
+  std.append KHoles Acc KAllArgs,
+  coq.mk-app (global (indc K)) KAllArgs KApp,
   coq.locate "res" (indc ResC),
   Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
     [ app [global (indc ResC), _, _, KApp]
     , fun `_` JSONTy (_\ fun `_` ListJSONTy (_\ ErrTerm))
     ].
 
-% Self-reference arg (exact indt): use SelfRef ja for recursive decode
-build-ctor-body Ind SelfRef K N [(global (indt Ind))|ArgTys] Args0 ErrTerm AccRev Body :- !,
+% Self-reference arg (exact indt, no params): use SelfRef ja for recursive decode
+build-ctor-body Ind SelfRef K N [(global (indt Ind)) as IndTy|ArgTys] Args0 ErrTerm AccRev Body :- !,
   N > 0, N1 is N - 1,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
-  coq.mk-app (global (indt Ind)) [] IndTy,
   coq.locate "bind" (const BindC),
   Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
     [ ErrTerm
@@ -305,12 +337,11 @@ build-ctor-body Ind SelfRef K N [(global (indt Ind))|ArgTys] Args0 ErrTerm AccRe
                {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
     ].
 
-% Parametric self-reference: app [global (indt Ind) | _]
-build-ctor-body Ind SelfRef K N [(app [(global (indt Ind)) | _])|ArgTys] Args0 ErrTerm AccRev Body :- !,
+% Parametric self-reference: app [global (indt Ind) | Ps] — the ArgTy is already IndTy_A
+build-ctor-body Ind SelfRef K N [(app [(global (indt Ind)) | _] as IndTy)|ArgTys] Args0 ErrTerm AccRev Body :- !,
   N > 0, N1 is N - 1,
   json-ty JSONTy,
   list-ty JSONTy ListJSONTy,
-  coq.mk-app (global (indt Ind)) [] IndTy,
   coq.locate "bind" (const BindC),
   Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
     [ ErrTerm
@@ -377,21 +408,23 @@ build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   std.rev AccRev Acc,
-  coq.mk-app (global (indc K)) Acc KApp,
+  coq.env.indc K KParNo _ _ _,
+  make-holes KParNo KHoles,
+  std.append KHoles Acc KAllArgs,
+  coq.mk-app (global (indc K)) KAllArgs KApp,
   coq.locate "res" (indc ResC),
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ app [global (indc ResC), _, _, KApp]          % nil  → res K
     , fun `_` PairTy (_\ fun `_` KvsTy (_\ ErrTerm)) % cons → err too many
     ].
 
-% Self-reference arg: decode with SelfRef
-build-ctor-body-kvs Ind Self K N [(global (indt Ind))|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+% Self-reference arg (exact indt): decode with SelfRef; capture IndTy via `as`
+build-ctor-body-kvs Ind Self K N [(global (indt Ind)) as IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
   N > 0, N1 is N - 1,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
-  coq.mk-app (global (indt Ind)) [] IndTy,
   coq.locate "bind" (const BindC),
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ ErrTerm                                % nil → too few
@@ -406,14 +439,13 @@ build-ctor-body-kvs Ind Self K N [(global (indt Ind))|ArgTys] Kvs0 ErrTerm AccRe
             ]))
     ].
 
-% Parametric self-reference
-build-ctor-body-kvs Ind Self K N [(app [(global (indt Ind))|_])|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
+% Parametric self-reference: app [global (indt Ind) | Ps]; capture full IndTy_A via `as`
+build-ctor-body-kvs Ind Self K N [(app [(global (indt Ind))|_] as IndTy)|ArgTys] Kvs0 ErrTerm AccRev Body :- !,
   N > 0, N1 is N - 1,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
-  coq.mk-app (global (indt Ind)) [] IndTy,
   coq.locate "bind" (const BindC),
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ ErrTerm
@@ -454,13 +486,14 @@ build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
 % Scrutinizes `tag : string` and for matching ctor decodes `kvs`.
 % ============================================================================
 
-func build-obj-dispatch inductive, term, list constructor, term, term, term -> term.
-build-obj-dispatch _Ind _Self [] _Tag _Kvs Default Default.
-build-obj-dispatch Ind Self [K|Ks] Tag Kvs Default Body :-
+func build-obj-dispatch inductive, list term, term, list constructor, term, term, term -> term.
+build-obj-dispatch _Ind _Params _Self [] _Tag _Kvs Default Default.
+build-obj-dispatch Ind Params Self [K|Ks] Tag Kvs Default Body :-
   coq.gref->id (indc K) KName,
   string_to_coq_string_term KName KNameTerm,
   coq.locate "string_dec" (const SumboolFnC),
-  coq.env.indc K _ParNo _UParNo _Kno KTy,
+  coq.env.indc K _ParNo _UParNo _Kno FullKTy,
+  apply-to-prods Params FullKTy KTy,
   count-ctor-args KTy Arity ArgTys,
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),

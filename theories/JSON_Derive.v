@@ -95,6 +95,7 @@ Compute (from_JSON (to_JSON (Fb 7 13)) : Result foo string).
 
 (* ===== Test 3: Recursive type ===== *)
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
+
 derive tree.
 Elpi derive.jsonifiable tree.
 Check tree_Jsonifiable.
