@@ -1,10 +1,11 @@
+From elpi Require Import elpi.
+From elpi Require Import derive.
+From elpi Require Import derive.std.
+
 From elpi.apps.derive.elpi Extra Dependency "derive_hook.elpi" as derive_hook.
 From rocq_json_derivers Extra Dependency "jsonifiable.elpi" as jsonifiable.
 From elpi.apps.derive.elpi Extra Dependency "derive_synterp_hook.elpi" as derive_synterp_hook.
 
-From elpi Require Import elpi.
-From elpi Require Import derive.
-From elpi Require Import derive.std.
 
 From RocqJSON Require Import JSON JSON_Error_Strings.
 From Stdlib Require Import Lia.
@@ -17,20 +18,9 @@ Elpi Db derive.jsonifiable.db lp:{{
   pred jsonifiable-done o:gref.
 }}.
 
-(* ===== Ltac1 tactics for Elpi to call ===== *)
+(* NOTE: This is called by jsonifiable.elpi to solve the main goal of deriving JSON_Derive.Jsonifiable for a given inductive type. 
 
-(* Solves JSON_depth sub < JSON_depth js obligations *)
-Ltac solve_json_depth := simpl; lia.
-
-(* Helper: solve the Fix_eq extensionality side-condition *)
-Ltac fix_eq_ext :=
-  intros;
-  repeat match goal with
-  | |- context [match ?x with _ => _ end] => destruct x
-  end;
-  reflexivity.
-
-(* Main canonical roundtrip proof tactic.
+  Main canonical roundtrip proof tactic.
    Uses induction to handle recursive types via IH.
    - simpl unfolds to_json/from_json on concrete constructors
    - IH rewrites recursive calls: from_json(to_json t) = res t
@@ -39,21 +29,15 @@ Ltac fix_eq_ext :=
 Ltac derive_jsonifiable_proof :=
   (* intro all forall-bound variables (type params, TC instances, the inductive value) *)
   intros;
-  (* In Rocq 9, `match goal` tries hypotheses newest-to-oldest.
-     After intros, the inductive value is the LAST (newest) introduced, so
-     `match goal` finds it first. *)
   match goal with
   | v : _ |- _ => induction v
   end; simpl;
-  repeat match goal with
+  repeat (match goal with
   | IH : ?from_json (?to_json _) = _ |- _ => rewrite IH
-  end;
+  end);
   repeat rewrite canonical_jsonification; simpl;
   try reflexivity.
 
-(* ===== Step 1: Minimal test - just explore the Elpi environment ===== *)
-
-(* First, let's just load the file and see if it compiles *)
 Elpi Command derive.jsonifiable.
 Elpi Accumulate File derive_hook.
 Elpi Accumulate Db derive.jsonifiable.db.
@@ -67,83 +51,59 @@ Elpi Accumulate lp:{{
   main _ :- coq.error "Usage: derive.jsonifiable <object name>".
 }}.
 
-(* ===== Step 2: Debug query - inspect the inductive ===== *)
+Elpi Accumulate derive Db derive.jsonifiable.db.
+Elpi Accumulate derive File jsonifiable.
+Elpi Accumulate derive lp:{{
+  derivation GR Pref ff (derive "jsonifiable" (derive.jsonifiable.main GR Pref) (jsonifiable-done GR)).
+}}.
 
 (* Simple enum type to test with *)
 Inductive color := Red | Green | Blue.
 derive color.
-
-Elpi Query lp:{{
-  coq.locate "color" (indt Ind),
-  coq.env.indt Ind _IsInd ParNo UParNo _IndSort Kns KTs,
-  coq.say "color has" ParNo "params," UParNo "uniform params",
-  coq.say "constructors:" Kns,
-  coq.say "constructor types:" KTs,
-  (if (coq.env.recursive? Ind) (coq.say "is recursive: yes") (coq.say "is recursive: no"))
-}}.
-
-
-
-(* ===== Test 1: Simple enum ===== *)
-Elpi derive.jsonifiable color.
 Check color_Jsonifiable.
 Compute (to_JSON Green : JSON).
-Print from_JSON.
 Compute (from_JSON (to_JSON Red) : Result color string).
 
-(* ===== Test 2: Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
+(* Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
 Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
 derive foo.
-Elpi derive.jsonifiable foo.
 Check foo_Jsonifiable.
 Compute (to_JSON (Fa 42) : JSON).
 Compute (from_JSON (to_JSON (Fb 7 13)) : Result foo string).
 
 (* ===== Test 3: Recursive type ===== *)
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
-
 derive tree.
-Elpi derive.jsonifiable tree.
 Check tree_Jsonifiable.
 Compute (to_JSON (Node Leaf 42 Leaf) : JSON).
 Compute (from_JSON (to_JSON (Node Leaf 42 Leaf)) : Result tree string).
 Compute (from_JSON (to_JSON (Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf))) : Result tree string).
 
 (* ===== Test 4: Parametric recursive type ===== *)
-(* Note: Set Uniform Inductive Parameters (transitively from derive.std) means we
-   must use arrow syntax for constructor value fields, NOT (v : A) syntax. *)
 Inductive jtree (A : Type) :=
   | JLeaf : jtree
   | JNode : A -> jtree -> jtree -> jtree.
 Arguments JLeaf {A}.
 Arguments JNode {A} _ _ _.
-
-Elpi Query lp:{{
-  coq.locate "jtree" (indt Ind),
-  coq.env.indt Ind _IsInd ParNo UParNo Arity Kns KTs,
-  coq.say "jtree ParNo=" ParNo "UParNo=" UParNo,
-  coq.say "Arity=" Arity,
-  coq.say "Kns=" Kns,
-  coq.say "KTs=" KTs
-}}.
-
 derive jtree.
-Elpi derive.jsonifiable jtree.
+
 (* Manual roundtrip test to verify the derivation worked *)
 Check jtree_Jsonifiable.
-(* Set Typeclasses Debug.
-Set Typeclasses Depth 10. *)
+Set Typeclasses Debug.
+Set Typeclasses Depth 10.
 Compute (to_JSON (JNode 42 JLeaf JLeaf) : JSON).
 Compute (from_JSON (to_JSON (JNode 42 JLeaf JLeaf)) : Result (jtree nat) string).
 
+Unset Uniform Inductive Parameters.
+
+(* ===== Test 5: More complex parametric recursive type ===== *)
 Inductive ab_tree (A B : Type) :=
-  | ABLeaf : ab_tree
-  | ABNode (a : A) (tree' : ab_tree) (b : B) : ab_tree.
+  | ABLeaf : ab_tree A B
+  | ABNode (a : A) (tree' : ab_tree A B) (b : B) : ab_tree A B.
 Arguments ABLeaf {A B}.
 Arguments ABNode {A B} _ _ _.
 
 derive ab_tree.
-Elpi derive.jsonifiable ab_tree.
 Check ab_tree_Jsonifiable.
 Compute (to_JSON (ABNode 1 ABLeaf true) : JSON).
 Compute (from_JSON (to_JSON (ABNode 1 ABLeaf true)) : Result (ab_tree nat bool) string).
