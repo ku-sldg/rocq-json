@@ -55,4 +55,7 @@ Opaque err_str_json_unrecognized_constructor.
 Definition err_str_json_no_constructor_name_string := "JSON: No constructor name found in JSON".
 Opaque err_str_json_no_constructor_name_string.
 
+Definition err_str_json_missing_field := "JSON: Required record field missing from JSON object".
+Opaque err_str_json_missing_field.
+
 Close Scope string_scope.

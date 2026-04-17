@@ -13,6 +13,9 @@ From Stdlib Require Import Wf_nat.
 
 Local Open Scope string_scope.
 
+(* Set Typeclasses Debug. *)
+Set Typeclasses Depth 3.
+
 (* ===== Database ===== *)
 Elpi Db derive.jsonifiable.db lp:{{
   pred jsonifiable-done o:gref.
@@ -61,23 +64,25 @@ Elpi Accumulate derive lp:{{
 Inductive color := Red | Green | Blue.
 derive color.
 Check color_Jsonifiable.
-Compute (to_JSON Green : JSON).
-Compute (from_JSON (to_JSON Red) : Result color string).
+Definition test_color := Green.
+Compute (to_JSON test_color : JSON).
+Compute (from_JSON (to_JSON test_color) : Result color string).
 
 (* Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
 Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
 derive foo.
 Check foo_Jsonifiable.
-Compute (to_JSON (Fa 42) : JSON).
-Compute (from_JSON (to_JSON (Fb 7 13)) : Result foo string).
+Definition test_foo := Fb 7 13.
+Compute (to_JSON test_foo : JSON).
+Compute (from_JSON (to_JSON test_foo) : Result foo string).
 
 (* ===== Test 3: Recursive type ===== *)
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
 derive tree.
 Check tree_Jsonifiable.
-Compute (to_JSON (Node Leaf 42 Leaf) : JSON).
-Compute (from_JSON (to_JSON (Node Leaf 42 Leaf)) : Result tree string).
-Compute (from_JSON (to_JSON (Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf))) : Result tree string).
+Definition test_tree := Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf).
+Compute (to_JSON test_tree : JSON).
+Compute (from_JSON (to_JSON test_tree) : Result tree string).
 
 (* ===== Test 4: Parametric recursive type ===== *)
 Inductive jtree (A : Type) :=
@@ -86,14 +91,12 @@ Inductive jtree (A : Type) :=
 Arguments JLeaf {A}.
 Arguments JNode {A} _ _ _.
 derive jtree.
-
-(* Manual roundtrip test to verify the derivation worked *)
 Check jtree_Jsonifiable.
-(* Set Typeclasses Debug.
-Set Typeclasses Depth 10. *)
-Compute (to_JSON (JNode 42 JLeaf JLeaf) : JSON).
-Compute (from_JSON (to_JSON (JNode 42 JLeaf JLeaf)) : Result (jtree nat) string).
+Definition test_jtree := JNode 42 JLeaf JLeaf.
+Compute (to_JSON test_jtree : JSON).
+Compute (from_JSON (to_JSON test_jtree) : Result (jtree nat) string).
 
+(* Testing with Uniform Inductive Parameters disabled as well *)
 Unset Uniform Inductive Parameters.
 
 (* ===== Test 5: More complex parametric recursive type ===== *)
@@ -102,8 +105,33 @@ Inductive ab_tree (A B : Type) :=
   | ABNode (a : A) (tree' : ab_tree A B) (b : B) : ab_tree A B.
 Arguments ABLeaf {A B}.
 Arguments ABNode {A B} _ _ _.
-
 derive ab_tree.
 Check ab_tree_Jsonifiable.
-Compute (to_JSON (ABNode 1 ABLeaf true) : JSON).
-Compute (from_JSON (to_JSON (ABNode 1 ABLeaf true)) : Result (ab_tree nat bool) string).
+Definition test_ab_tree := ABNode 1 ABLeaf true.
+Compute (to_JSON test_ab_tree : JSON).
+Compute (from_JSON (to_JSON test_ab_tree) : Result (ab_tree nat bool) string).
+
+(* ===== Test 6: Record type ===== *)
+Record test_rec := {
+  a : nat;
+  b : bool;
+  c : tree
+}.
+derive test_rec.
+Check test_rec_Jsonifiable.
+Definition test_test_rec := {| a := 42; b := true; c := Node Leaf 1 Leaf |}.
+Compute (to_JSON test_test_rec : JSON).
+Compute (from_JSON (to_JSON test_test_rec) : Result test_rec string).
+
+(* ===== Test 7: Polymorphic Record type ===== *)
+Record prec (A B : Type) := {
+  pa : A;
+  pb : B;
+  pc : ab_tree A B
+}.
+derive prec.
+Check prec_Jsonifiable.
+Definition test_prec :=
+  {| pa := 42; pb := true; pc := (ABNode 0 ABLeaf false) |}.
+Compute (to_JSON test_prec : JSON).
+Compute (from_JSON (to_JSON test_prec) : Result (prec nat bool) string).

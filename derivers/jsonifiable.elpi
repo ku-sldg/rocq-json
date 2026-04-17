@@ -736,6 +736,136 @@ build-from-json-term Ind Params
       "build-from-json-body failed".
 
 % ============================================================================
+% Record support
+%
+% Record types are handled differently from regular inductives:
+%   - to_json: flat JSON_Object with projection field names as keys
+%   - from_json: lookup each field by name via json_field_lookup
+%
+% This produces natural JSON like {"x": 1, "y": 2} instead of
+% the tagged-object format {"mk_point": {"x": 1, "y": 2}}.
+% ============================================================================
+
+% Collect unique terms from a list (structural equality, preserving first-occurrence order).
+pred collect-unique-terms i:list term, i:list term, o:list term.
+collect-unique-terms [] _ [].
+collect-unique-terms [T|Ts] Seen Rest :-
+  std.mem Seen T, !, collect-unique-terms Ts Seen Rest.
+collect-unique-terms [T|Ts] Seen [T|Rest] :-
+  collect-unique-terms Ts [T|Seen] Rest.
+
+% Collect the distinct concrete field types for a record (excluding type params).
+% These are the types that need an abstract Jsonifiable instance parameter so that
+% from_JSON/to_JSON stays abstract (not unfolded by simpl) for the roundtrip proof.
+pred record-field-jsonifiable-types i:inductive, i:list term, o:list term.
+record-field-jsonifiable-types Ind Params DistinctFieldTys :-
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort [Kn] _KTs,
+  coq.env.indc Kn _ _ _ FullKTy,
+  apply-to-prods Params FullKTy KTy,
+  count-ctor-args KTy _Arity ArgTys,
+  % Keep only field types that are NOT already type params.
+  std.filter ArgTys (ty\ not (std.mem Params ty)) ConcreteTys,
+  collect-unique-terms ConcreteTys [] DistinctFieldTys.
+
+% Build to_json and from_json skeletons for a record, wrapping with
+% {Ji : Jsonifiable Ti} for each distinct concrete field type.
+% Having Ji abstract keeps from_JSON/to_JSON opaque → rewrite canonical_jsonification works.
+pred build-record-fun-wrapped
+  i:inductive, i:list term, i:list constant, i:list term, o:term, o:term.
+build-record-fun-wrapped Ind Params Projs [] TJSkel FJSkel :-
+  build-to-json-record-term Ind Params Projs TJSkel,
+  build-from-json-record-term Ind Params Projs FJSkel.
+build-record-fun-wrapped Ind Params Projs [Ti|Tis] TJSkel FJSkel :-
+  @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
+    build-record-fun-wrapped Ind Params Projs Tis (TJInner JI) (FJInner JI),
+  TJSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ TJInner ji),
+  FJSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ FJInner ji).
+
+% Filter out None projections, keeping only Some constants.
+pred unopt-projections i:list (option constant), o:list constant.
+unopt-projections [] [].
+unopt-projections [none|Rest] Rs :- !, unopt-projections Rest Rs.
+unopt-projections [some C|Rest] [C|Rs] :- unopt-projections Rest Rs.
+
+% Get the field name for a projection constant.
+func proj-field-name constant -> string.
+proj-field-name P Name :- coq.gref->id (const P) Name.
+
+% Extract field names from a list of projection constants.
+func extract-proj-names list constant -> list string.
+extract-proj-names [] [].
+extract-proj-names [P|Ps] [N|Ns] :- proj-field-name P N, extract-proj-names Ps Ns.
+
+% Build to_json branch for a record constructor:
+%   match a with mk_R f1 f2 ... => JSON_Object [("f1", to_JSON f1); ...]
+% Uses coq.build-match: K, KTy, Vars (the bound field values), VarTys → body.
+func to-json-branch-record list constant, term, term, list term, list term -> term.
+to-json-branch-record Projs _K _KTy Vars VarTys Body :-
+  extract-proj-names Projs FieldNames,
+  build-to-json-args Vars VarTys ArgJsons,
+  build-named-json-pairs FieldNames ArgJsons PairTerms,
+  json-ty JSONTy,
+  str-ty StrTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  coq.locate "RocqJSON.JSON_Type.JSON_Object" (indc ObjGR),
+  build-coq-list PairStrJsonTy PairTerms PairsList,
+  Body = app [global (indc ObjGR), PairsList].
+
+% Build to_json for a record:
+%   fun a => match a with mk_R f1 f2 ... => JSON_Object [("f1", to_JSON f1); ...]
+% Uses coq.build-match (same pattern as build-to-json-term) to avoid HO issues.
+pred build-to-json-record-term
+  i:inductive, i:list term, i:list constant, o:term.
+build-to-json-record-term Ind Params Projs (fun `a` IndTy (a\ R a)) :-
+  coq.mk-app (global (indt Ind)) Params IndTy,
+  json-ty JSONTy,
+  @pi-decl `a` IndTy A\
+    coq.build-match A IndTy
+      (_\_\_\ r\ r = JSONTy)
+      (k\ kt\ vs\ vts\ to-json-branch-record Projs k kt vs vts)
+      (R A).
+
+% Build from_json for a record type using positional (not name-based) kvs decoding.
+%
+% Records serialize as flat JSON_Object with field-name keys. The from_json
+% matches JSON_Object and decodes kvs positionally — ignoring the key strings —
+% exactly like build-ctor-body-kvs does for regular constructors.
+%
+% This avoids string comparisons in the proof, keeping the same proof tactic.
+pred build-from-json-record-term
+  i:inductive, i:list term, i:list constant, o:term.
+build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort [Kn] _KTs,
+  coq.env.indc Kn _ _ _ FullKTy,
+  apply-to-prods Params FullKTy KTy,
+  count-ctor-args KTy Arity ArgTys,
+  json-ty JSONTy,
+  str-ty StrTy,
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  list-ty JSONTy ListJSONTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  list-ty PairStrJsonTy MapStrJsonTy,
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
+  ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
+  ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
+  @pi-decl `js` JSONTy JS\
+  @pi-decl `kvs` MapStrJsonTy KVS\
+    % Positional decode: match kvs elements by position (keys are ignored).
+    % SelfRef is dummy for non-recursive records; self-ref args in ArgTys are
+    % detected by is-self-reference and handled by build-ctor-body-kvs.
+    build-ctor-body-kvs Ind (global (indt Ind)) Kn Arity ArgTys KVS ErrUnrec [] (KvsBody KVS),
+  R JS = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
+    [ fun `kvs` MapStrJsonTy (kvs\ KvsBody kvs)
+    , fun `_` ListJSONTy   (_\ ErrNoCons)
+    , fun `_` StrTy        (_\ ErrNoCons)
+    , fun `_` NatTy        (_\ ErrNoCons)
+    , fun `_` BoolTy       (_\ ErrNoCons)
+    ].
+
+% ============================================================================
 % Parametric-wrapping helpers
 %
 % All three predicates have the same recursive structure:
@@ -752,6 +882,19 @@ build-from-json-term Ind Params
 pred build-fun-wrapped-skeletons
   i:inductive, i:int, i:term, i:list term, i:list term, o:term, o:term.
 
+% Record base case: flat JSON_Object with field names, abstract field Jsonifiable instances.
+build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
+  std.rev RevTPs Params,
+  coq.env.record? Ind _,
+  coq.env.projections Ind OptProjs,
+  unopt-projections OptProjs Projs,
+  not (Projs = []), !,
+  coq.say "derive.jsonifiable: record detected, using field-name JSON format",
+  record-field-jsonifiable-types Ind Params FieldTys,
+  std.assert! (build-record-fun-wrapped Ind Params Projs FieldTys TJSkel FJSkel)
+    "build-record-fun-wrapped failed".
+
+% General base case: tagged-object format for regular inductives.
 build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :- !,
   std.rev RevTPs Params,
   build-to-json-term Ind Params TJSkel,
@@ -771,6 +914,19 @@ build-fun-wrapped-skeletons Ind N (prod PName PTy RestArity) RevTPs RevTCPs TJSk
 pred build-prod-wrapped-proof-type
   i:inductive, i:constant, i:constant, i:int, i:term, i:list term, i:list term, o:term.
 
+% Record base case: also wrap with {Ji : Jsonifiable Ti} for each concrete field type.
+% This keeps from_JSON/to_JSON abstract in the proof body so rewrite canonical_jsonification works.
+build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :-
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  coq.env.record? Ind _,
+  coq.env.projections Ind OptProjs,
+  unopt-projections OptProjs Projs,
+  not (Projs = []), !,
+  record-field-jsonifiable-types Ind TPs FieldTys,
+  build-record-proof-type-inner Ind TJC FJC TPs TCPs FieldTys [] ProofTySkel.
+
+% Standard base case: non-record inductives.
 build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
@@ -779,9 +935,8 @@ build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
   result-ty IndTy StrTy ResultTy,
   coq.locate "res" (indc ResC),
   interleave TPs TCPs AllParams,
-  % TJC A JA ... applied to all params, then to the value
-  TJApp = app [global (const TJC) | AllParams],   % TJC A JA : IndTy -> JSON
-  FJApp = app [global (const FJC) | AllParams],   % FJC A JA : JSON -> Result IndTy string
+  TJApp = app [global (const TJC) | AllParams],
+  FJApp = app [global (const FJC) | AllParams],
   ProofTySkel = prod `v` IndTy (v\
     app [ {{@eq}}, ResultTy
         , app [FJApp, app [TJApp, v]]
@@ -796,12 +951,50 @@ build-prod-wrapped-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs Re
       (InnerTy A JA),
   ProofTySkel = prod PName PTy (a\ prod `JS` {{ Jsonifiable lp:a }} (ja\ InnerTy a ja)).
 
+% Build proof type inner for records: wraps with {Ji : Jsonifiable Ti} for concrete field types,
+% then builds the core forall v, FJC ... v = res v.
+pred build-record-proof-type-inner
+  i:inductive, i:constant, i:constant, i:list term, i:list term, i:list term, i:list term, o:term.
+
+build-record-proof-type-inner Ind TJC FJC TPs TCPs [] RevFInsts ProofTySkel :-
+  std.rev RevFInsts FInsts,
+  coq.mk-app (global (indt Ind)) TPs IndTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
+  coq.locate "res" (indc ResC),
+  interleave TPs TCPs TypeParams,
+  std.append TypeParams FInsts AllParams,
+  TJApp = app [global (const TJC) | AllParams],
+  FJApp = app [global (const FJC) | AllParams],
+  ProofTySkel = prod `v` IndTy (v\
+    app [ {{@eq}}, ResultTy
+        , app [FJApp, app [TJApp, v]]
+        , app [global (indc ResC), _, _, v]
+        ]).
+
+build-record-proof-type-inner Ind TJC FJC TPs TCPs [Ti|Tis] RevFInsts ProofTySkel :-
+  @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
+    build-record-proof-type-inner Ind TJC FJC TPs TCPs Tis [JI|RevFInsts] (InnerTy JI),
+  ProofTySkel = prod `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerTy ji).
+
 % build-fun-wrapped-instance: builds the Build_Jsonifiable application wrapped
 % in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
 pred build-fun-wrapped-instance
   i:inductive, i:constant, i:constant, i:constant,
   i:int, i:term, i:list term, i:list term, o:term.
 
+% Record base case: also wrap with {Ji : Jsonifiable Ti} for each concrete field type.
+build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :-
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  coq.env.record? Ind _,
+  coq.env.projections Ind OptProjs,
+  unopt-projections OptProjs Projs,
+  not (Projs = []), !,
+  record-field-jsonifiable-types Ind TPs FieldTys,
+  build-record-instance-inner Ind TJC FJC PrfC TPs TCPs FieldTys [] InstSkel.
+
+% Standard base case.
 build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
@@ -821,6 +1014,28 @@ build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs 
     build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
       (InnerInst A JA),
   InstSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ InnerInst a ja)).
+
+% Build instance inner for records: wraps with {Ji : Jsonifiable Ti} for concrete field types.
+pred build-record-instance-inner
+  i:inductive, i:constant, i:constant, i:constant,
+  i:list term, i:list term, i:list term, i:list term, o:term.
+
+build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [] RevFInsts InstSkel :-
+  std.rev RevFInsts FInsts,
+  coq.mk-app (global (indt Ind)) TPs IndTy,
+  interleave TPs TCPs TypeParams,
+  std.append TypeParams FInsts AllParams,
+  coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
+  InstSkel = app [ global (indc BuildGR), IndTy
+                 , app [global (const TJC)  | AllParams]
+                 , app [global (const FJC)  | AllParams]
+                 , app [global (const PrfC) | AllParams]
+                 ].
+
+build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [Ti|Tis] RevFInsts InstSkel :-
+  @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
+    build-record-instance-inner Ind TJC FJC PrfC TPs TCPs Tis [JI|RevFInsts] (InnerInst JI),
+  InstSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerInst ji).
 
 % ============================================================================
 % Phase 4: Main entry point
@@ -854,31 +1069,32 @@ main (indt Ind) Prefix C :- std.do! [
     "derive.jsonifiable: canonical proof typecheck failed",
   % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
   coq.ltac.collect-goals Bo Goals _SGoals,
-  % coq.say "derive.jsonifiable: goals=" Goals "shelved=" SGoals,
   Goals = [G|_],
-  % coq.say "derive.jsonifiable: running tactic on goal" G,
   coq.ltac.open (g\gl\
-    % coq.say "inside tactic, gl before=" gl,
     coq.ltac.call "derive_jsonifiable_proof" [] g gl ok
-    % , coq.say "inside tactic, done"
-  ) G [],
-  % coq.say "derive.jsonifiable: tactic done",
-  coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
-  coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
-  % coq.say "derive.jsonifiable: proved" PrfName,
+  ) G RemainingGoals,
+  (if (RemainingGoals = [])
+     (coq.say "derive.jsonifiable: canonical proof closed")
+     (coq.warning "derive.jsonifiable" "derive.jsonifiable.incomplete-proof"
+       "derive.jsonifiable: canonical_jsonification proof could not be closed automatically; Jsonifiable instance will NOT be registered. Proof state may give clues.",
+      coq.say "derive.jsonifiable: PROOF INCOMPLETE, remaining goals:" RemainingGoals)),
+  % Only register the Jsonifiable instance if the proof is complete.
+  if (RemainingGoals = []) (std.do! [
+    coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
+    coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
 
-  % --- Phase 4: Build Jsonifiable instance ---
-  build-fun-wrapped-instance Ind TJC FJC PrfC ParNo Arity [] [] InstSkel,
-  std.assert-ok! (coq.elaborate-skeleton InstSkel InstanceTy InstanceElab)
-    "derive.jsonifiable: instance elaboration failed",
-  coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
-  coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
-  coq.TC.declare-instance (const InstC) 0,
-  % coq.say "derive.jsonifiable: declared TC instance" InstName,
-
-  coq.elpi.accumulate _ "derive.jsonifiable.db"
-    (clause _ _ (jsonifiable-done (indt Ind))),
-  C = [jsonifiable-done (indt Ind)]
+    % --- Phase 4: Build Jsonifiable instance ---
+    build-fun-wrapped-instance Ind TJC FJC PrfC ParNo Arity [] [] InstSkel,
+    std.assert-ok! (coq.elaborate-skeleton InstSkel InstanceTy InstanceElab)
+      "derive.jsonifiable: instance elaboration failed",
+    coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
+    coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
+    coq.TC.declare-instance (const InstC) 0,
+    coq.say "derive.jsonifiable: declared TC instance" InstName,
+    coq.elpi.accumulate _ "derive.jsonifiable.db"
+      (clause _ _ (jsonifiable-done (indt Ind))),
+    C = [jsonifiable-done (indt Ind)]
+  ]) (C = [])
 ].
 
 main (indc _) _ _ :- coq.error "derive.jsonifiable: cannot be called on a constructor".
