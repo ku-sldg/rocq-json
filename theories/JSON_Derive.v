@@ -99,7 +99,7 @@ Elpi Accumulate derive lp:{{
 
 (* Simple enum type to test with *)
 Inductive color := Red | Green | Blue.
-derive color.
+Elpi derive.jsonifiable color.
 Check color_Jsonifiable.
 Definition test_color := Green.
 Compute (to_JSON test_color : JSON).
@@ -107,7 +107,7 @@ Compute (from_JSON (to_JSON test_color) : Result color string).
 
 (* Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
 Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
-derive foo.
+Elpi derive.jsonifiable foo.
 Check foo_Jsonifiable.
 Definition test_foo := Fb 7 13.
 Compute (to_JSON test_foo : JSON).
@@ -115,7 +115,7 @@ Compute (from_JSON (to_JSON test_foo) : Result foo string).
 
 (* ===== Test 3: Recursive type ===== *)
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
-derive tree.
+Elpi derive.jsonifiable tree.
 Check tree_Jsonifiable.
 Definition test_tree := Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf).
 Compute (to_JSON test_tree : JSON).
@@ -127,7 +127,7 @@ Inductive jtree (A : Type) :=
   | JNode : A -> jtree -> jtree -> jtree.
 Arguments JLeaf {A}.
 Arguments JNode {A} _ _ _.
-derive jtree.
+Elpi derive.jsonifiable jtree.
 Check jtree_Jsonifiable.
 Definition test_jtree := JNode 42 JLeaf JLeaf.
 Compute (to_JSON test_jtree : JSON).
@@ -142,7 +142,7 @@ Inductive ab_tree (A B : Type) :=
   | ABNode (a : A) (tree' : ab_tree A B) (b : B) : ab_tree A B.
 Arguments ABLeaf {A B}.
 Arguments ABNode {A B} _ _ _.
-derive ab_tree.
+Elpi derive.jsonifiable ab_tree.
 Check ab_tree_Jsonifiable.
 Definition test_ab_tree := ABNode 1 ABLeaf true.
 Compute (to_JSON test_ab_tree : JSON).
@@ -154,7 +154,7 @@ Record test_rec := {
   b : bool;
   c : tree
 }.
-derive test_rec.
+Elpi derive.jsonifiable test_rec.
 Check test_rec_Jsonifiable.
 Definition test_test_rec := {| a := 42; b := true; c := Node Leaf 1 Leaf |}.
 Compute (to_JSON test_test_rec : JSON).
@@ -166,24 +166,24 @@ Record prec (A B : Type) := {
   pb : B;
   pc : ab_tree A B
 }.
-derive prec.
+Elpi derive.jsonifiable prec.
 Check prec_Jsonifiable.
 Definition test_prec :=
   {| pa := 42; pb := true; pc := (ABNode 0 ABLeaf false) |}.
 Compute (to_JSON test_prec : JSON).
 Compute (from_JSON (to_JSON test_prec) : Result (prec nat bool) string).
 
-(* derive positive. *)
-derive Z.
+Elpi derive.jsonifiable positive.
+Elpi derive.jsonifiable Z.
 
 Inductive nested_tree (A : Type) :=
   | NLeaf : nested_tree A
   | NNode : list (A * nested_tree A) -> nested_tree A.
 Arguments NLeaf {A}.
 Arguments NNode {A} _.
-derive nested_tree.
+Elpi derive.jsonifiable nested_tree.
 
 Definition test_nested_tree := NNode [(42, NLeaf); (7, NNode [(13, NLeaf)])].
 Compute (to_JSON test_nested_tree : JSON).
-From RocqJSON Require Import JSON_Stringification.
-Eval vm_compute in (JSON_to_string (to_JSON test_nested_tree) : string).
+Compute (from_JSON (to_JSON test_nested_tree) : Result (nested_tree nat) string).
+
