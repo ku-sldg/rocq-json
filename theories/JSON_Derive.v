@@ -9,7 +9,6 @@ From elpi.apps.derive.elpi Extra Dependency "derive_synterp_hook.elpi" as derive
 
 From RocqJSON Require Import JSON JSON_Error_Strings.
 From Stdlib Require Import Lia.
-From Stdlib Require Import Wf_nat.
 From Stdlib Require Import List.
 
 Local Open Scope string_scope.
@@ -58,12 +57,15 @@ Ltac derive_jsonifiable_proof :=
   ]);
   simpl;
   try reflexivity;
-  (* Nested type case: self-type inside list containers (e.g., list (A * nested_tree A)).
-     Assert result_map = res l by induction on l; guard checker accepts IH_rec nt
-     because nt is a structural subterm of l (cons head), hence of NNode l. *)
-  try (
+  (* Nested type case: self-type inside list containers.
+     Repeat to handle multiple list args (e.g., nested_tree_2 with two lists).
+     Each iteration: assert result_map g (map f l) = res l by induction on l,
+     then rewrite and simpl. Guard checker accepts IH_rec nt because nt comes
+     from destructuring a cons element of l — a structural subterm of the fix arg. *)
+  repeat (
     match goal with
     | |- context [result_map ?g (map ?f ?l)] =>
+        let Hmap := fresh "Hmap" in
         assert (Hmap : result_map g (map f l) = res l) by (
           induction l as [| [? ?] ? IHl]; simpl;
           [ try reflexivity
@@ -74,9 +76,10 @@ Ltac derive_jsonifiable_proof :=
             ]);
             simpl; try reflexivity ]
         );
-        rewrite Hmap; simpl; try reflexivity
+        rewrite Hmap; simpl
     end
-  ).
+  );
+  try reflexivity.
 
 Elpi Command derive.jsonifiable.
 Elpi Accumulate File derive_hook.
@@ -104,6 +107,7 @@ Check color_Jsonifiable.
 Definition test_color := Green.
 Compute (to_JSON test_color : JSON).
 Compute (from_JSON (to_JSON test_color) : Result color string).
+Print color_canonical_jsonification.
 
 (* Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
 Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
@@ -173,9 +177,11 @@ Definition test_prec :=
 Compute (to_JSON test_prec : JSON).
 Compute (from_JSON (to_JSON test_prec) : Result (prec nat bool) string).
 
+(* ==== Test 8: Integers ===== *)
 Elpi derive.jsonifiable positive.
 Elpi derive.jsonifiable Z.
 
+(* ===== Test 9: Nested recursive type ===== *)
 Inductive nested_tree (A : Type) :=
   | NLeaf : nested_tree A
   | NNode : list (A * nested_tree A) -> nested_tree A.
@@ -186,4 +192,3 @@ Elpi derive.jsonifiable nested_tree.
 Definition test_nested_tree := NNode [(42, NLeaf); (7, NNode [(13, NLeaf)])].
 Compute (to_JSON test_nested_tree : JSON).
 Compute (from_JSON (to_JSON test_nested_tree) : Result (nested_tree nat) string).
-
