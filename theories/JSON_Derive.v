@@ -192,3 +192,32 @@ Elpi derive.jsonifiable nested_tree.
 Definition test_nested_tree := NNode [(42, NLeaf); (7, NNode [(13, NLeaf)])].
 Compute (to_JSON test_nested_tree : JSON).
 Compute (from_JSON (to_JSON test_nested_tree) : Result (nested_tree nat) string).
+
+(* ===== Test 10: Complex Nested Type ===== *)
+Inductive nested_tree_2 (A B : Type) :=
+  | NLeaf2 : nested_tree_2 A B
+  | NNode2 : list (A * nested_tree_2 A B) -> list (B * nested_tree_2 A B) -> nested_tree_2 A B.
+Arguments NLeaf2 {A B}.
+Arguments NNode2 {A B} _ _.
+Elpi derive.jsonifiable nested_tree_2.
+
+(* ===== Test 11: A many constructor type ===== *)
+Inductive many_constructors :=
+  | MC0
+  | MC1 (n : nat)
+  | MC2 (b : bool)
+  | MC3 (t : tree)
+  | MC4 (l : list nat)
+  | MC5 (p : positive)
+  | MC6 (z : Z)
+  | MC7 (nt : nested_tree nat)
+  | MC8 (nt2 : nested_tree_2 nat bool).
+Elpi derive.jsonifiable many_constructors.
+
+(* ===== Test 12: Nested type with many nestings *)
+Inductive nested_tree_3 (A B C : Type) :=
+  | NLeaf3 : nested_tree_3 A B C
+  | NNode3 : list (A * list (B * list (C * nested_tree_3 A B C))) -> nested_tree_3 A B C.
+Arguments NLeaf3 {A B C}.
+Arguments NNode3 {A B C} _.
+Elpi derive.jsonifiable nested_tree_3.
