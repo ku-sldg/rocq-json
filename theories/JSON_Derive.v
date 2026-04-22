@@ -10,6 +10,7 @@ From elpi.apps.derive.elpi Extra Dependency "derive_synterp_hook.elpi" as derive
 From RocqJSON Require Import JSON JSON_Error_Strings.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Wf_nat.
+From Stdlib Require Import List.
 
 Local Open Scope string_scope.
 
@@ -21,25 +22,61 @@ Elpi Db derive.jsonifiable.db lp:{{
   pred jsonifiable-done o:gref.
 }}.
 
-(* NOTE: This is called by "jsonifiable.elpi" to solve the main goal of deriving JSON_Derive.Jsonifiable for a given inductive type. 
-
-  Main canonical roundtrip proof tactic.
-   Uses induction to handle recursive types via IH.
-   - simpl unfolds to_json/from_json on concrete constructors
-   - IH rewrites recursive calls: from_json(to_json t) = res t
-   - canonical_jsonification rewrites from_JSON(to_JSON x) = res x
-   - string_dec on equal strings reduces to left refl *)
-Ltac derive_jsonifiable_proof :=
-  (* intro all forall-bound variables (type params, TC instances, the inductive value) *)
+(* NOTE: This is called by "jsonifiable.elpi" to solve the main goal of deriving
+   JSON_Derive.Jsonifiable for a given inductive type. *)
+(* For non-recursive types: no fix needed, just destruct *)
+Ltac derive_jsonifiable_proof_norec :=
   intros;
   match goal with
-  | v : _ |- _ => induction v
-  end; simpl;
-  repeat (match goal with
-  | IH : ?from_json (?to_json _) = _ |- _ => rewrite IH
-  end);
-  repeat rewrite canonical_jsonification; simpl;
+  | v : _ |- _ =>
+      revert v; intro v; destruct v
+  end;
+  simpl;
+  repeat (rewrite canonical_jsonification);
+  simpl;
   try reflexivity.
+
+(* For recursive / nested-recursive types: fix gives universally quantified IH.
+   For the nested case (self-type inside list containers), we assert the
+   result_map lemma and prove it by induction on the list. The key is that
+   nt (from destructuring a list element) is a subterm of the structural arg,
+   so IH_rec nt passes the guard checker when embedded inside list_rect. *)
+Ltac derive_jsonifiable_proof :=
+  intros;
+  match goal with
+  | v : _ |- _ =>
+      revert v;
+      fix IH_rec 1;
+      intro v; destruct v
+  end;
+  simpl;
+  (* Use match goal to find the IH (avoids "not found" when IH_rec isn't in context),
+     and canonical_jsonification for cross-type args (works when instance is abstract) *)
+  repeat (first [
+    match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
+    rewrite canonical_jsonification
+  ]);
+  simpl;
+  try reflexivity;
+  (* Nested type case: self-type inside list containers (e.g., list (A * nested_tree A)).
+     Assert result_map = res l by induction on l; guard checker accepts IH_rec nt
+     because nt is a structural subterm of l (cons head), hence of NNode l. *)
+  try (
+    match goal with
+    | |- context [result_map ?g (map ?f ?l)] =>
+        assert (Hmap : result_map g (map f l) = res l) by (
+          induction l as [| [? ?] ? IHl]; simpl;
+          [ try reflexivity
+          | repeat (first [
+              match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
+              rewrite canonical_jsonification |
+              rewrite IHl
+            ]);
+            simpl; try reflexivity ]
+        );
+        rewrite Hmap; simpl; try reflexivity
+    end
+  ).
 
 Elpi Command derive.jsonifiable.
 Elpi Accumulate File derive_hook.
@@ -135,3 +172,18 @@ Definition test_prec :=
   {| pa := 42; pb := true; pc := (ABNode 0 ABLeaf false) |}.
 Compute (to_JSON test_prec : JSON).
 Compute (from_JSON (to_JSON test_prec) : Result (prec nat bool) string).
+
+(* derive positive. *)
+derive Z.
+
+Inductive nested_tree (A : Type) :=
+  | NLeaf : nested_tree A
+  | NNode : list (A * nested_tree A) -> nested_tree A.
+Arguments NLeaf {A}.
+Arguments NNode {A} _.
+derive nested_tree.
+
+Definition test_nested_tree := NNode [(42, NLeaf); (7, NNode [(13, NLeaf)])].
+Compute (to_JSON test_nested_tree : JSON).
+From RocqJSON Require Import JSON_Stringification.
+Eval vm_compute in (JSON_to_string (to_JSON test_nested_tree) : string).

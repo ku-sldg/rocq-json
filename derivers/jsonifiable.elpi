@@ -82,6 +82,62 @@ is-self-reference Ind (global (indt Ind)) :- !.
 is-self-reference Ind (app [global (indt Ind) | _]) :- !.
 
 % ============================================================================
+% type-contains-ind: check if a type mentions Ind anywhere (not just at the top level)
+% ============================================================================
+
+pred type-contains-ind i:inductive, i:term.
+type-contains-ind Ind (global (indt Ind)) :- !.
+type-contains-ind Ind (app [global (indt Ind) | _]) :- !.
+type-contains-ind Ind (app [_ | Args]) :- std.exists Args (type-contains-ind Ind).
+type-contains-ind Ind (fun _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
+type-contains-ind Ind (prod _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
+
+% ============================================================================
+% build-nested-to-json-arg: build a JSON term for V : Ty when Ty contains Ind.
+% SelfRef is the to_json fixpoint reference.
+% ============================================================================
+
+func build-nested-to-json-arg inductive, term, term, term -> term.
+
+% Direct self-reference
+build-nested-to-json-arg Ind SelfRef V (global (indt Ind)) (app [SelfRef, V]) :- !.
+build-nested-to-json-arg Ind SelfRef V (app [global (indt Ind) | _]) (app [SelfRef, V]) :- !.
+
+% List case: list ElemTy where ElemTy contains Ind
+build-nested-to-json-arg Ind SelfRef V (app [global (indt ListIndt), ElemTy]) Result :-
+  coq.locate "Corelib.Init.Datatypes.list" (indt ListIndt), !,
+  type-contains-ind Ind ElemTy, !,
+  json-ty JSONTy,
+  coq.locate "map" (const MapC),
+  coq.locate "RocqJSON.JSON_Type.JSON_Array" (indc ArrGR),
+  @pi-decl `e` ElemTy E\
+    build-nested-to-json-arg Ind SelfRef E ElemTy (MapFBody E),
+  MapFun = fun `e` ElemTy (e\ MapFBody e),
+  MappedList = app [global (const MapC), ElemTy, JSONTy, MapFun, V],
+  Result = app [global (indc ArrGR), MappedList].
+
+% Prod case: prod A B where A or B contains Ind
+build-nested-to-json-arg Ind SelfRef V (app [global (indt ProdIndt), A, B]) Result :-
+  coq.locate "Corelib.Init.Datatypes.prod" (indt ProdIndt), !,
+  json-ty JSONTy,
+  coq.locate "fst" (const FstC),
+  coq.locate "snd" (const SndC),
+  coq.locate "RocqJSON.JSON_Type.JSON_Array" (indc ArrGR),
+  FstV = app [global (const FstC), A, B, V],
+  SndV = app [global (const SndC), A, B, V],
+  (if (type-contains-ind Ind A)
+    (build-nested-to-json-arg Ind SelfRef FstV A JsonA)
+    (JsonA = {{ @to_JSON _ _ lp:FstV }})),
+  (if (type-contains-ind Ind B)
+    (build-nested-to-json-arg Ind SelfRef SndV B JsonB)
+    (JsonB = {{ @to_JSON _ _ lp:SndV }})),
+  build-coq-list JSONTy [JsonA, JsonB] JsonList,
+  Result = app [global (indc ArrGR), JsonList].
+
+% Fallback: use TC
+build-nested-to-json-arg _Ind _SelfRef V _Ty {{ @to_JSON _ _ lp:V }}.
+
+% ============================================================================
 % apply-to-prods: substitute a list of terms into leading prod-binders.
 % Used to instantiate the type params in constructor types.
 %   apply-to-prods [A1; A2] (forall A1, forall A2, Body A1 A2) = Body A1 A2
@@ -268,12 +324,13 @@ build-to-json-args [] [] [].
 build-to-json-args [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
   build-to-json-args Vs VTys Rs.
 
-% Same for recursive types: self-reference args use SelfRef directly.
+% Same for recursive types: self-reference args use SelfRef directly,
+% and nested args (where Ind appears inside containers) use build-nested-to-json-arg.
 func build-to-json-args-rec inductive, term, list term, list term -> list term.
 build-to-json-args-rec _Ind _SelfRef [] [] [].
-build-to-json-args-rec Ind SelfRef [V|Vs] [(global (indt Ind))|VTys] [(app [SelfRef, V])|Rs] :- !,
-  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
-build-to-json-args-rec Ind SelfRef [V|Vs] [(app [global (indt Ind)|_])|VTys] [(app [SelfRef, V])|Rs] :- !,
+build-to-json-args-rec Ind SelfRef [V|Vs] [VTy|VTys] [JsonV|Rs] :-
+  type-contains-ind Ind VTy, !,
+  build-nested-to-json-arg Ind SelfRef V VTy JsonV,
   build-to-json-args-rec Ind SelfRef Vs VTys Rs.
 build-to-json-args-rec Ind SelfRef [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
   build-to-json-args-rec Ind SelfRef Vs VTys Rs.
@@ -490,6 +547,104 @@ build-string-dispatch-chain Params Tag [K|Ks] Default Body :-
     ].
 
 % ============================================================================
+% build-nested-from-json-deser: build a (JSON -> Result Ty string) deserializer
+% for Ty which contains Ind. SelfRef is the from_json fixpoint reference.
+% ============================================================================
+
+func build-nested-from-json-deser inductive, term, term -> term.
+
+% Direct self-reference: SelfRef already has type JSON -> Result IndTy string
+build-nested-from-json-deser Ind SelfRef (global (indt Ind)) SelfRef :- !.
+build-nested-from-json-deser Ind SelfRef (app [global (indt Ind) | _]) SelfRef :- !.
+
+% List case: list ElemTy where ElemTy contains Ind
+build-nested-from-json-deser Ind SelfRef (app [global (indt ListIndt), ElemTy]) Result :-
+  coq.locate "Corelib.Init.Datatypes.list" (indt ListIndt), !,
+  type-contains-ind Ind ElemTy, !,
+  json-ty JSONTy,
+  str-ty StrTy,
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  list-ty ElemTy ListElemTy,
+  list-ty JSONTy ListJSONTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  list-ty PairStrJsonTy MapStrJsonTy,
+  coq.locate "result_map" (const RMapC),
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_no_constructor_name_string" (const ErrC2),
+  ErrTerm = app [global (indc ErrC), _, _, global (const ErrC2)],
+  build-nested-from-json-deser Ind SelfRef ElemTy ElemDeser,
+  result-ty ListElemTy StrTy ListElemResultTy,
+  Result = fun `js` JSONTy (js\
+    match js (fun `_` JSONTy (_\ ListElemResultTy))
+      [ fun `_` MapStrJsonTy (_\ ErrTerm)
+      , fun `arr` ListJSONTy (arr\
+          app [global (const RMapC), JSONTy, ElemTy, StrTy, ElemDeser, arr])
+      , fun `_` StrTy (_\ ErrTerm)
+      , fun `_` NatTy (_\ ErrTerm)
+      , fun `_` BoolTy (_\ ErrTerm)
+      ]).
+
+% Prod case: prod A B where A or B contains Ind
+build-nested-from-json-deser Ind SelfRef (app [global (indt ProdIndt), A, B]) Result :-
+  coq.locate "Corelib.Init.Datatypes.prod" (indt ProdIndt), !,
+  json-ty JSONTy,
+  str-ty StrTy,
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  pair-ty A B _ProdTy,
+  list-ty JSONTy ListJSONTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  list-ty PairStrJsonTy MapStrJsonTy,
+  coq.locate "bind" (const BindC),
+  coq.locate "res" (indc ResC),
+  coq.locate "pair" (indc PairGR),
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_no_constructor_name_string" (const ErrC2),
+  ErrTerm = app [global (indc ErrC), _, _, global (const ErrC2)],
+  (if (type-contains-ind Ind A)
+    (build-nested-from-json-deser Ind SelfRef A DeserA)
+    (DeserA = fun `ja` JSONTy (ja\ {{ @from_JSON lp:A _ lp:ja }}))),
+  (if (type-contains-ind Ind B)
+    (build-nested-from-json-deser Ind SelfRef B DeserB)
+    (DeserB = fun `jb` JSONTy (jb\ {{ @from_JSON lp:B _ lp:jb }}))),
+  % Deserializer: fun js => match js with JSON_Array [ajs;bjs] => ... | _ => err
+  Result = fun `js` JSONTy (js\
+    match js (fun `_` JSONTy (_\ {{Result _ string}}))
+      [ fun `_` MapStrJsonTy (_\ ErrTerm)
+      , fun `arr` ListJSONTy (arr\
+          match arr (fun `_` ListJSONTy (_\ {{Result _ string}}))
+            [ ErrTerm
+            , fun `ajs` JSONTy (ajs\
+                fun `rest1` ListJSONTy (rest1\
+                  match rest1 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+                    [ ErrTerm
+                    , fun `bjs` JSONTy (bjs\
+                        fun `rest2` ListJSONTy (rest2\
+                          match rest2 (fun `_` ListJSONTy (_\ {{Result _ string}}))
+                            [ app [global (const BindC), _, _, _,
+                                   app [DeserA, ajs],
+                                   fun `av` A (av\
+                                     app [global (const BindC), _, _, _,
+                                          app [DeserB, bjs],
+                                          fun `bv` B (bv\
+                                            app [global (indc ResC), _, _,
+                                                 app [global (indc PairGR), A, B, av, bv]])])]
+                            , fun `_` JSONTy (_\ fun `_` ListJSONTy (_\ ErrTerm))
+                            ]))
+                    ]))
+            ])
+      , fun `_` StrTy (_\ ErrTerm)
+      , fun `_` NatTy (_\ ErrTerm)
+      , fun `_` BoolTy (_\ ErrTerm)
+      ]).
+
+% Fallback: use TC from_JSON
+build-nested-from-json-deser _Ind _SelfRef Ty Result :-
+  json-ty JSONTy,
+  Result = fun `js` JSONTy (js\ {{ @from_JSON lp:Ty _ lp:js }}).
+
+% ============================================================================
 % build-ctor-body-kvs: decode a constructor from kvs : list (string * JSON).
 %
 % Matches the list positionally (ignoring key strings), extracting the JSON
@@ -515,37 +670,16 @@ build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
     , fun `_` PairTy (_\ fun `_` KvsTy (_\ ErrTerm)) % cons → err too many
     ].
 
-% Self-reference arg (exact indt): decode with SelfRef
-build-ctor-body-kvs Ind Self K N [IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
-  IndTy = global (indt Ind), !,
+% Arg containing Ind (self-reference or nested): use nested deserializer
+build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
+  type-contains-ind Ind ArgTy, !,
   N > 0, N1 is N - 1,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   coq.locate "bind" (const BindC),
-  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
-    [ ErrTerm                                % nil → too few
-    , fun `kv` PairTy (kv\
-        fun `kvr` KvsTy (kvr\
-          match kv (fun `_` PairTy (_\ {{Result _ string}}))
-            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
-                app [global (const BindC), _, _, _,
-                     app [Self, val],
-                     fun `dv` IndTy (dv\
-                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
-            ]))
-    ].
-
-% Parametric self-reference: app [global (indt Ind) | Ps]
-build-ctor-body-kvs Ind Self K N [IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
-  IndTy = app [global (indt Ind) | _], !,
-  N > 0, N1 is N - 1,
-  str-ty StrTy,
-  json-ty JSONTy,
-  pair-ty StrTy JSONTy PairTy,
-  list-ty PairTy KvsTy,
-  coq.locate "bind" (const BindC),
+  build-nested-from-json-deser Ind Self ArgTy NestedDeser,
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ ErrTerm
     , fun `kv` PairTy (kv\
@@ -553,8 +687,8 @@ build-ctor-body-kvs Ind Self K N [IndTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
           match kv (fun `_` PairTy (_\ {{Result _ string}}))
             [ fun `_` StrTy (_\ fun `val` JSONTy (val\
                 app [global (const BindC), _, _, _,
-                     app [Self, val],
-                     fun `dv` IndTy (dv\
+                     app [NestedDeser, val],
+                     fun `dv` ArgTy (dv\
                        {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
             ]))
     ].
@@ -767,6 +901,36 @@ record-field-jsonifiable-types Ind Params DistinctFieldTys :-
   std.filter ArgTys (ty\ not (std.mem Params ty)) ConcreteTys,
   collect-unique-terms ConcreteTys [] DistinctFieldTys.
 
+% Collect distinct concrete arg types across ALL constructors of a general inductive.
+% Excludes type params and types that contain the inductive itself (self-references).
+pred inductive-concrete-jsonifiable-types i:inductive, i:list term, o:list term.
+inductive-concrete-jsonifiable-types Ind Params DistinctTys :-
+  coq.env.indt Ind _ _ _ _ Kns _,
+  std.map Kns (k\ ctys\
+    sigma FullKTy KTy ArgTys\
+    coq.env.indc k _ _ _ FullKTy,
+    apply-to-prods Params FullKTy KTy,
+    count-ctor-args KTy _ ArgTys,
+    std.filter ArgTys (ty\
+      not (std.mem Params ty),
+      not (type-contains-ind Ind ty)) ctys
+  ) AllTysList,
+  std.flatten AllTysList AllTys,
+  collect-unique-terms AllTys [] DistinctTys.
+
+% Build to_json and from_json skeletons for a general inductive, wrapping with
+% {Ji : Jsonifiable Ti} for each distinct concrete arg type.
+% Having Ji abstract keeps from_JSON/to_JSON opaque → rewrite canonical_jsonification works.
+pred build-inductive-fun-wrapped i:inductive, i:list term, i:list term, o:term, o:term.
+build-inductive-fun-wrapped Ind Params [] TJSkel FJSkel :-
+  build-to-json-term Ind Params TJSkel,
+  std.assert! (build-from-json-term Ind Params FJSkel) "build-from-json-term failed".
+build-inductive-fun-wrapped Ind Params [Ti|Tis] TJSkel FJSkel :-
+  @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
+    build-inductive-fun-wrapped Ind Params Tis (TJInner JI) (FJInner JI),
+  TJSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ TJInner ji),
+  FJSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ FJInner ji).
+
 % Build to_json and from_json skeletons for a record, wrapping with
 % {Ji : Jsonifiable Ti} for each distinct concrete field type.
 % Having Ji abstract keeps from_JSON/to_JSON opaque → rewrite canonical_jsonification works.
@@ -894,11 +1058,13 @@ build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
   std.assert! (build-record-fun-wrapped Ind Params Projs FieldTys TJSkel FJSkel)
     "build-record-fun-wrapped failed".
 
-% General base case: tagged-object format for regular inductives.
+% General base case: tagged-object format for regular inductives, with abstract
+% Jsonifiable instances for each distinct concrete arg type.
 build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :- !,
   std.rev RevTPs Params,
-  build-to-json-term Ind Params TJSkel,
-  std.assert! (build-from-json-term Ind Params FJSkel) "build-from-json-term failed".
+  inductive-concrete-jsonifiable-types Ind Params ConcreteTys,
+  std.assert! (build-inductive-fun-wrapped Ind Params ConcreteTys TJSkel FJSkel)
+    "build-inductive-fun-wrapped failed".
 
 build-fun-wrapped-skeletons Ind N (prod PName PTy RestArity) RevTPs RevTCPs TJSkel FJSkel :-
   N > 0, N1 is N - 1,
@@ -926,22 +1092,13 @@ build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :-
   record-field-jsonifiable-types Ind TPs FieldTys,
   build-record-proof-type-inner Ind TJC FJC TPs TCPs FieldTys [] ProofTySkel.
 
-% Standard base case: non-record inductives.
+% Standard base case: non-record inductives, wrapped with abstract Jsonifiable
+% instances for each distinct concrete arg type (mirrors record approach).
 build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
-  coq.mk-app (global (indt Ind)) TPs IndTy,
-  str-ty StrTy,
-  result-ty IndTy StrTy ResultTy,
-  coq.locate "res" (indc ResC),
-  interleave TPs TCPs AllParams,
-  TJApp = app [global (const TJC) | AllParams],
-  FJApp = app [global (const FJC) | AllParams],
-  ProofTySkel = prod `v` IndTy (v\
-    app [ {{@eq}}, ResultTy
-        , app [FJApp, app [TJApp, v]]
-        , app [global (indc ResC), _, _, v]
-        ]).
+  inductive-concrete-jsonifiable-types Ind TPs ConcreteTys,
+  build-record-proof-type-inner Ind TJC FJC TPs TCPs ConcreteTys [] ProofTySkel.
 
 build-prod-wrapped-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
   N > 0, N1 is N - 1,
@@ -994,18 +1151,13 @@ build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :-
   record-field-jsonifiable-types Ind TPs FieldTys,
   build-record-instance-inner Ind TJC FJC PrfC TPs TCPs FieldTys [] InstSkel.
 
-% Standard base case.
+% Standard base case: non-record inductives, wrapped with abstract Jsonifiable
+% instances for each distinct concrete arg type (mirrors record approach).
 build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
-  coq.mk-app (global (indt Ind)) TPs IndTy,
-  interleave TPs TCPs AllParams,
-  coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
-  InstSkel = app [ global (indc BuildGR), IndTy
-                 , app [global (const TJC)  | AllParams]
-                 , app [global (const FJC)  | AllParams]
-                 , app [global (const PrfC) | AllParams]
-                 ].
+  inductive-concrete-jsonifiable-types Ind TPs ConcreteTys,
+  build-record-instance-inner Ind TJC FJC PrfC TPs TCPs ConcreteTys [] InstSkel.
 
 build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
   N > 0, N1 is N - 1,
@@ -1070,8 +1222,11 @@ main (indt Ind) Prefix C :- std.do! [
   % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
   coq.ltac.collect-goals Bo Goals _SGoals,
   Goals = [G|_],
+  (if (coq.env.recursive? Ind)
+    (TacName = "derive_jsonifiable_proof")
+    (TacName = "derive_jsonifiable_proof_norec")),
   coq.ltac.open (g\gl\
-    coq.ltac.call "derive_jsonifiable_proof" [] g gl ok
+    coq.ltac.call TacName [] g gl ok
   ) G RemainingGoals,
   (if (RemainingGoals = [])
      (coq.say "derive.jsonifiable: canonical proof closed")
