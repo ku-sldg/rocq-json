@@ -11,6 +11,16 @@ Class Jsonifiable (A : Type) := {
   canonical_jsonification : forall (a : A), from_JSON (to_JSON a) = res a
 }.
 
+Global Instance Jsonifiable_string : Jsonifiable string := {
+  to_JSON := JSON_String;
+  from_JSON := fun js => 
+                  match js with 
+                  | JSON_String s => res s 
+                  | _ => err (errStr_json_wrong_type "string" js)
+                  end;
+  canonical_jsonification := fun s => eq_refl
+}.
+
 Global Instance Stringifiable_Jsonifiable_A {A} `{Jsonifiable A} : Stringifiable A.
 ref (Build_Stringifiable _ 
   (fun a => to_string (to_JSON a))
@@ -159,6 +169,17 @@ induction a; jsonifiable_hammer.
 Qed. *)
 
 (* The List JSONIFIABLE Class *)
+Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
+eapply Build_Jsonifiable with
+  (to_JSON   := fun l => JSON_Array (map to_JSON l))
+  (from_JSON := fun js => 
+                  match js with 
+                  | JSON_Array l => 
+                      result_map from_JSON l
+                  | _ => err (errStr_json_wrong_type "list" js)
+                  end).
+induction a; jsonifiable_hammer.
+Defined.
 
 Definition map_serial_serial_to_JSON {A B : Type} `{Stringifiable A, Stringifiable B, DecEq A} (m : Map A B) : JSON :=
   JSON_Object (

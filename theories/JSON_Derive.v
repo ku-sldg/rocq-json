@@ -23,6 +23,35 @@ Elpi Db derive.jsonifiable.db lp:{{
 
 (* NOTE: This is called by "jsonifiable.elpi" to solve the main goal of deriving
    JSON_Derive.Jsonifiable for a given inductive type. *)
+
+(* prove_result_map_eq: prove result_map g (map f l) = res l for arbitrarily
+   nested element types. Uses IH_rec from outer fix (if in scope) and
+   canonical_jsonification for abstract TC args. Handles arbitrary nesting
+   depth by recursive invocation for inner result_map patterns.
+   The induction pattern [| [? ?] ? IHl] assumes list elements are pairs. *)
+Ltac prove_result_map_eq :=
+  match goal with
+  | |- result_map ?g (map ?f ?l) = res ?l =>
+      induction l as [| [? ?] ? IHl]; simpl;
+      [ try reflexivity
+      | repeat (first [
+          match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
+          rewrite canonical_jsonification |
+          rewrite IHl
+        ]);
+        simpl;
+        repeat (
+          match goal with
+          | |- context [result_map ?g2 (map ?f2 ?l2)] =>
+              let Hmap := fresh "Hmap" in
+              assert (Hmap : result_map g2 (map f2 l2) = res l2) by
+                prove_result_map_eq;
+              rewrite Hmap; simpl
+          end
+        );
+        try reflexivity ]
+  end.
+
 (* For non-recursive types: no fix needed, just destruct *)
 Ltac derive_jsonifiable_proof_norec :=
   intros;
@@ -37,45 +66,32 @@ Ltac derive_jsonifiable_proof_norec :=
 
 (* For recursive / nested-recursive types: fix gives universally quantified IH.
    For the nested case (self-type inside list containers), we assert the
-   result_map lemma and prove it by induction on the list. The key is that
-   nt (from destructuring a list element) is a subterm of the structural arg,
-   so IH_rec nt passes the guard checker when embedded inside list_rect. *)
+   result_map lemma and prove it using prove_result_map_eq, which handles
+   arbitrary nesting depth recursively. The key is that nt (from destructuring
+   a cons element inside list_rect) is a structural subterm of the fix arg,
+   so IH_rec nt passes the guard checker. *)
 Ltac derive_jsonifiable_proof :=
   intros;
   match goal with
   | v : _ |- _ =>
+      (* it is safe to do it this way since we control the context 
+        and know the *last* introduced will always be the one we want *)
       revert v;
       fix IH_rec 1;
       intro v; destruct v
   end;
   simpl;
-  (* Use match goal to find the IH (avoids "not found" when IH_rec isn't in context),
-     and canonical_jsonification for cross-type args (works when instance is abstract) *)
   repeat (first [
     match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
     rewrite canonical_jsonification
   ]);
   simpl;
   try reflexivity;
-  (* Nested type case: self-type inside list containers.
-     Repeat to handle multiple list args (e.g., nested_tree_2 with two lists).
-     Each iteration: assert result_map g (map f l) = res l by induction on l,
-     then rewrite and simpl. Guard checker accepts IH_rec nt because nt comes
-     from destructuring a cons element of l — a structural subterm of the fix arg. *)
   repeat (
     match goal with
     | |- context [result_map ?g (map ?f ?l)] =>
         let Hmap := fresh "Hmap" in
-        assert (Hmap : result_map g (map f l) = res l) by (
-          induction l as [| [? ?] ? IHl]; simpl;
-          [ try reflexivity
-          | repeat (first [
-              match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
-              rewrite canonical_jsonification |
-              rewrite IHl
-            ]);
-            simpl; try reflexivity ]
-        );
+        assert (Hmap : result_map g (map f l) = res l) by prove_result_map_eq;
         rewrite Hmap; simpl
     end
   );
@@ -201,6 +217,10 @@ Arguments NLeaf2 {A B}.
 Arguments NNode2 {A B} _ _.
 Elpi derive.jsonifiable nested_tree_2.
 
+Definition test_nested_tree_2 := NNode2 [(42, NLeaf2); (7, NNode2 [(13, NLeaf2)] [])] [(true, NLeaf2); (false, NNode2 [] [(true, NLeaf2)])].
+Compute (to_JSON test_nested_tree_2 : JSON).
+Compute (from_JSON (to_JSON test_nested_tree_2) : Result (nested_tree_2 nat bool) string).
+
 (* ===== Test 11: A many constructor type ===== *)
 Inductive many_constructors :=
   | MC0
@@ -213,6 +233,12 @@ Inductive many_constructors :=
   | MC7 (nt : nested_tree nat)
   | MC8 (nt2 : nested_tree_2 nat bool).
 Elpi derive.jsonifiable many_constructors.
+Definition test_many_constructors := MC8 (NNode2 [(42, NLeaf2); (7, NNode2 [(13, NLeaf2)] [])] [(true, NLeaf2); (false, NNode2 [] [(true, NLeaf2)])]).
+Definition test_many_constructors2 := MC4 [1; 2; 3; 4].
+Compute (to_JSON test_many_constructors : JSON).
+Compute (from_JSON (to_JSON test_many_constructors) : Result many_constructors string).
+Compute (to_JSON test_many_constructors2 : JSON).
+Compute (from_JSON (to_JSON test_many_constructors2) : Result many_constructors string).
 
 (* ===== Test 12: Nested type with many nestings *)
 Inductive nested_tree_3 (A B C : Type) :=
@@ -221,3 +247,7 @@ Inductive nested_tree_3 (A B C : Type) :=
 Arguments NLeaf3 {A B C}.
 Arguments NNode3 {A B C} _.
 Elpi derive.jsonifiable nested_tree_3.
+
+Definition test_nested_tree_3 := NNode3 [(42, [(true, [("hello", NLeaf3)])])].
+Compute (nested_tree_3_to_json _ _ _ _ _ _ test_nested_tree_3 : JSON).
+Compute (nested_tree_3_from_json _ _ _ _ _ _ (nested_tree_3_to_json _ _ _ _ _ _ test_nested_tree_3) : Result (nested_tree_3 nat bool string) string).
