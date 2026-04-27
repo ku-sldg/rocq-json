@@ -96,6 +96,11 @@ type-contains-ind Ind (app [_ | Args]) :- std.exists Args (type-contains-ind Ind
 type-contains-ind Ind (fun _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
 type-contains-ind Ind (prod _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
 
+func type-head-name term -> string.
+type-head-name (global (indt GR)) Name :- !, coq.gref->id (indt GR) Name.
+type-head-name (app [global (indt GR) | _]) Name :- !, coq.gref->id (indt GR) Name.
+type-head-name _ "unknown type constructor".
+
 % ============================================================================
 % build-nested-to-json-arg: build a JSON term for V : Ty when Ty contains Ind.
 % SelfRef is the to_json fixpoint reference.
@@ -156,6 +161,14 @@ build-nested-to-json-arg Ind SelfRef V (app [global (indt ProdIndt), A, B]) Resu
     (JsonB = {{ @to_JSON _ _ lp:SndV }})),
   build-coq-list JSONTy [JsonA, JsonB] JsonList,
   Result = app [global (indc ArrGR), JsonList].
+
+build-nested-to-json-arg Ind _SelfRef _V Ty _Result :-
+  type-contains-ind Ind Ty, !,
+  HeadName is {type-head-name Ty},
+  coq.error
+    ("derive.jsonifiable: unsupported nested recursive occurrence under "
+     ^ HeadName
+     ^ ". Supported recursive containers are list, prod, and option.").
 
 % Fallback: use TC
 build-nested-to-json-arg _Ind _SelfRef V _Ty {{ @to_JSON _ _ lp:V }}.
@@ -749,6 +762,14 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt ProdIndt), A, B]) Re
       , fun `_` NatTy (_\ ErrTerm)
       , fun `_` BoolTy (_\ ErrTerm)
       ]).
+
+build-nested-from-json-deser Ind _SelfRef Ty _Result :-
+  type-contains-ind Ind Ty, !,
+  HeadName is {type-head-name Ty},
+  coq.error
+    ("derive.jsonifiable: unsupported nested recursive occurrence under "
+     ^ HeadName
+     ^ ". Supported recursive containers are list, prod, and option.").
 
 % Fallback: use TC from_JSON
 build-nested-from-json-deser _Ind _SelfRef Ty Result :-

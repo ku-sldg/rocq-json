@@ -217,7 +217,8 @@ Elpi derive.jsonifiable LetBindingAST.
 Inductive nested_tree : Type :=
 | NLeaf (n : nat)
 | NNode (children : list (MyOption nested_tree)).
-Elpi derive.jsonifiable nested_tree.
+(* Unsupported nested recursive occurrence under user-defined MyOption. *)
+Fail Elpi derive.jsonifiable nested_tree.
 
 (* NOTE: These are currently failing, we don't suppport them yet!
 
