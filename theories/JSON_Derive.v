@@ -14,7 +14,12 @@ From Stdlib Require Import List.
 Local Open Scope string_scope.
 
 (* Set Typeclasses Debug. *)
-Set Typeclasses Depth 3.
+Set Typeclasses Depth 6.
+
+Ltac destruct_options :=
+  repeat match goal with
+  | o : option _ |- _ => destruct o; simpl
+  end.
 
 (* ===== Database ===== *)
 Elpi Db derive.jsonifiable.db lp:{{
@@ -27,14 +32,15 @@ Elpi Db derive.jsonifiable.db lp:{{
 (* prove_result_map_eq: prove result_map g (map f l) = res l for arbitrarily
    nested element types. Uses IH_rec from outer fix (if in scope) and
    canonical_jsonification for abstract TC args. Handles arbitrary nesting
-   depth by recursive invocation for inner result_map patterns.
-   The induction pattern [| [? ?] ? IHl] assumes list elements are pairs. *)
+   depth by recursive invocation for inner result_map patterns. *)
 Ltac prove_result_map_eq :=
   match goal with
   | |- result_map ?g (map ?f ?l) = res ?l =>
-      induction l as [| [? ?] ? IHl]; simpl;
+      induction l as [| x l IHl]; simpl;
       [ try reflexivity
-      | repeat (first [
+      | try destruct x as [? ?]; simpl;
+        destruct_options;
+        repeat (first [
           match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
           rewrite canonical_jsonification |
           rewrite IHl
@@ -60,6 +66,7 @@ Ltac derive_jsonifiable_proof_norec :=
       revert v; intro v; destruct v
   end;
   simpl;
+  destruct_options;
   repeat (rewrite canonical_jsonification);
   simpl;
   try reflexivity.
@@ -81,6 +88,7 @@ Ltac derive_jsonifiable_proof :=
       intro v; destruct v
   end;
   simpl;
+  destruct_options;
   repeat (first [
     match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
     rewrite canonical_jsonification
@@ -240,14 +248,62 @@ Compute (from_JSON (to_JSON test_many_constructors) : Result many_constructors s
 Compute (to_JSON test_many_constructors2 : JSON).
 Compute (from_JSON (to_JSON test_many_constructors2) : Result many_constructors string).
 
-(* ===== Test 12: Nested type with many nestings *)
-Inductive nested_tree_3 (A B C : Type) :=
-  | NLeaf3 : nested_tree_3 A B C
-  | NNode3 : list (A * list (B * list (C * nested_tree_3 A B C))) -> nested_tree_3 A B C.
-Arguments NLeaf3 {A B C}.
-Arguments NNode3 {A B C} _.
+(* ===== Test 12: Non-recursive option fields ===== *)
+Inductive option_payload :=
+  | OPNone (n : option nat)
+  | OPMix (n : option nat) (b : option bool).
+Elpi derive.jsonifiable option_payload.
+
+Definition test_option_payload := OPMix (Some 5) None.
+Compute (to_JSON test_option_payload : JSON).
+Compute (from_JSON (to_JSON test_option_payload) : Result option_payload string).
+Example test_option_payload_roundtrip :
+  from_JSON (to_JSON test_option_payload) = res test_option_payload.
+Proof. exact (canonical_jsonification test_option_payload). Qed.
+
+(* ===== Test 13: Record option fields ===== *)
+Record option_rec := {
+  or_n : option nat;
+  or_t : option tree
+}.
+Elpi derive.jsonifiable option_rec.
+
+Definition test_option_rec :=
+  {| or_n := Some 42; or_t := Some (Node Leaf 1 Leaf) |}.
+Compute (to_JSON test_option_rec : JSON).
+Compute (from_JSON (to_JSON test_option_rec) : Result option_rec string).
+Example test_option_rec_roundtrip :
+  from_JSON (to_JSON test_option_rec) = res test_option_rec.
+Proof. exact (canonical_jsonification test_option_rec). Qed.
+
+(* ===== Test 14: Recursive option field ===== *)
+Inductive nested_tree_3 (A B : Type) :=
+  | NLeaf3 : nested_tree_3 A B
+  | NNode3 : A -> B -> option (nested_tree_3 A B) -> nested_tree_3 A B.
+Arguments NLeaf3 {A B}.
+Arguments NNode3 {A B} _ _ _.
 Elpi derive.jsonifiable nested_tree_3.
 
-Definition test_nested_tree_3 := NNode3 [(42, [(true, [("hello", NLeaf3)])])].
-Compute (nested_tree_3_to_json _ _ _ _ _ _ test_nested_tree_3 : JSON).
-Compute (nested_tree_3_from_json _ _ _ _ _ _ (nested_tree_3_to_json _ _ _ _ _ _ test_nested_tree_3) : Result (nested_tree_3 nat bool string) string).
+Definition test_nested_tree_3 : nested_tree_3 nat bool :=
+  NNode3 43 true (Some (NNode3 7 false None)).
+Compute (to_JSON test_nested_tree_3 : JSON).
+Compute (from_JSON (to_JSON test_nested_tree_3) : Result (nested_tree_3 nat bool) string).
+Example test_nested_tree_3_roundtrip :
+  from_JSON (to_JSON test_nested_tree_3) = res test_nested_tree_3.
+Proof. exact (canonical_jsonification test_nested_tree_3). Qed.
+
+(* ===== Test 15: Recursive option inside nested lists/products ===== *)
+Inductive nested_tree_4 (A B C : Type) :=
+  | NLeaf4 : nested_tree_4 A B C
+  | NNode4 : list (A * option (nested_tree_4 A B C)) -> nested_tree_4 A B C.
+Arguments NLeaf4 {A B C}.
+Arguments NNode4 {A B C} _.
+Elpi derive.jsonifiable nested_tree_4.
+
+Definition test_nested_tree_4 : nested_tree_4 nat bool string :=
+  NNode4 [(42, Some NLeaf4); (7, Some (NNode4 [(13, None)]))].
+Compute (to_JSON test_nested_tree_4 : JSON).
+Compute (from_JSON (to_JSON test_nested_tree_4) : Result (nested_tree_4 nat bool string) string).
+Example test_nested_tree_4_roundtrip :
+  from_JSON (to_JSON test_nested_tree_4) = res test_nested_tree_4.
+Proof. exact (canonical_jsonification test_nested_tree_4). Qed.

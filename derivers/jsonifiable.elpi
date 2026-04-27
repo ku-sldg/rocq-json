@@ -65,6 +65,10 @@ func list-ty term -> term.
 list-ty Elem (app [global (indt GR), Elem]) :-
   coq.locate "Corelib.Init.Datatypes.list" (indt GR).
 
+func option-ty term -> term.
+option-ty Elem (app [global (indt GR), Elem]) :-
+  coq.locate "Corelib.Init.Datatypes.option" (indt GR).
+
 func pair-ty term, term -> term.
 pair-ty A B (app [global (indt GR), A, B]) :-
   coq.locate "Corelib.Init.Datatypes.prod" (indt GR).
@@ -97,6 +101,13 @@ type-contains-ind Ind (prod _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
 % SelfRef is the to_json fixpoint reference.
 % ============================================================================
 
+func build-option-some-to-json inductive, term, term, term -> term.
+build-option-some-to-json Ind SelfRef E ElemTy Body :-
+  (if (is-self-reference Ind ElemTy)
+     (JsonE = app [SelfRef, E])
+     (build-nested-to-json-arg Ind SelfRef E ElemTy JsonE)),
+  build-named-obj-ctor "Some" ["v"] [JsonE] Body.
+
 func build-nested-to-json-arg inductive, term, term, term -> term.
 
 % Direct self-reference
@@ -115,6 +126,18 @@ build-nested-to-json-arg Ind SelfRef V (app [global (indt ListIndt), ElemTy]) Re
   MapFun = fun `e` ElemTy (e\ MapFBody e),
   MappedList = app [global (const MapC), ElemTy, JSONTy, MapFun, V],
   Result = app [global (indc ArrGR), MappedList].
+
+% Option case: option ElemTy where ElemTy contains Ind
+build-nested-to-json-arg Ind SelfRef V (app [global (indt OptionIndt), ElemTy]) Result :-
+  coq.locate "Corelib.Init.Datatypes.option" (indt OptionIndt), !,
+  type-contains-ind Ind ElemTy, !,
+  json-ty JSONTy,
+  option-ty ElemTy OptionTy,
+  build-json-string-ctor "None" NoneBody,
+  Result = match V (fun `_` OptionTy (_\ JSONTy))
+    [ fun `e` ElemTy (e\ {build-option-some-to-json Ind SelfRef e ElemTy})
+    , NoneBody
+    ].
 
 % Prod case: prod A B where A or B contains Ind
 build-nested-to-json-arg Ind SelfRef V (app [global (indt ProdIndt), A, B]) Result :-
@@ -585,6 +608,94 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt ListIndt), ElemTy]) 
       , fun `_` BoolTy (_\ ErrTerm)
       ]).
 
+% Option case: option ElemTy where ElemTy contains Ind
+% This mirrors build-ctor-body-kvs: nested recursive decoding is positional
+% and only requires the JSON shape produced by the corresponding serializer.
+build-nested-from-json-deser Ind SelfRef (app [global (indt OptionIndt), ElemTy]) Result :-
+  coq.locate "Corelib.Init.Datatypes.option" (indt OptionIndt), !,
+  type-contains-ind Ind ElemTy, !,
+  json-ty JSONTy,
+  str-ty StrTy,
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  option-ty ElemTy OptionTy,
+  list-ty JSONTy ListJSONTy,
+  pair-ty StrTy JSONTy PairStrJsonTy,
+  list-ty PairStrJsonTy MapStrJsonTy,
+  result-ty OptionTy StrTy OptionResultTy,
+  coq.locate "bind" (const BindC),
+  coq.locate "res" (indc ResC),
+  coq.locate "err" (indc ErrC),
+  coq.locate "Corelib.Init.Datatypes.Some" (indc SomeC),
+  coq.locate "Corelib.Init.Datatypes.None" (indc NoneC),
+  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
+  (if (is-self-reference Ind ElemTy)
+     (ElemDeser = SelfRef)
+     (build-nested-from-json-deser Ind SelfRef ElemTy ElemDeser)),
+
+  @pi-decl `s` StrTy S\
+    ( NoneRes = app [global (indc ResC), _, _, app [global (indc NoneC), ElemTy]],
+      StringBranchF S = NoneRes ),
+
+  @pi-decl `val` JSONTy VAL\
+    ( SomeDecodeF VAL =
+        app [global (const BindC), _, _, _,
+             app [ElemDeser, VAL],
+             fun `dv` ElemTy (dv\
+               app [global (indc ResC), _, _,
+                    app [global (indc SomeC), ElemTy, dv]])] ),
+
+  @pi-decl `kvs` MapStrJsonTy KVS\
+    ( KvsMatchF KVS =
+        match KVS (fun `_` MapStrJsonTy (_\ OptionResultTy))
+          [ ErrNoCons
+          , fun `kv` PairStrJsonTy (kv\
+              fun `rest` MapStrJsonTy (rest\
+                match rest (fun `_` MapStrJsonTy (_\ OptionResultTy))
+                  [ match kv (fun `_` PairStrJsonTy (_\ OptionResultTy))
+                      [ fun `_` StrTy (_\ fun `val` JSONTy (val\ SomeDecodeF val)) ]
+                  , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
+                  ]))
+          ] ),
+
+  @pi-decl `tag` StrTy TAG\
+  @pi-decl `inner` JSONTy INNER\
+    ( InnerMatchF TAG INNER =
+        match INNER (fun `_` JSONTy (_\ OptionResultTy))
+          [ fun `kvs` MapStrJsonTy (kvs\ KvsMatchF kvs)
+          , fun `_` ListJSONTy (_\ ErrNoCons)
+          , fun `_` StrTy (_\ ErrNoCons)
+          , fun `_` NatTy (_\ ErrNoCons)
+          , fun `_` BoolTy (_\ ErrNoCons)
+          ] ),
+
+  @pi-decl `pp` PairStrJsonTy PP\
+    ( PairMatchF PP =
+        match PP (fun `_` PairStrJsonTy (_\ OptionResultTy))
+          [ fun `tag` StrTy (tag\ fun `inner` JSONTy (inner\ InnerMatchF tag inner)) ] ),
+
+  @pi-decl `m` MapStrJsonTy M\
+    ( ObjBranchF M =
+        match M (fun `_` MapStrJsonTy (_\ OptionResultTy))
+          [ ErrNoCons
+          , fun `pp` PairStrJsonTy (pp\
+              fun `rest` MapStrJsonTy (rest\
+                match rest (fun `_` MapStrJsonTy (_\ OptionResultTy))
+                  [ PairMatchF pp
+                  , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
+                  ]))
+          ] ),
+
+  Result = fun `js` JSONTy (js\
+    match js (fun `_` JSONTy (_\ OptionResultTy))
+      [ fun `m` MapStrJsonTy (m\ ObjBranchF m)
+      , fun `_` ListJSONTy (_\ ErrNoCons)
+      , fun `s` StrTy (s\ StringBranchF s)
+      , fun `_` NatTy (_\ ErrNoCons)
+      , fun `_` BoolTy (_\ ErrNoCons)
+      ]).
+
 % Prod case: prod A B where A or B contains Ind
 build-nested-from-json-deser Ind SelfRef (app [global (indt ProdIndt), A, B]) Result :-
   coq.locate "Corelib.Init.Datatypes.prod" (indt ProdIndt), !,
@@ -923,7 +1034,7 @@ inductive-concrete-jsonifiable-types Ind Params DistinctTys :-
 % Having Ji abstract keeps from_JSON/to_JSON opaque → rewrite canonical_jsonification works.
 pred build-inductive-fun-wrapped i:inductive, i:list term, i:list term, o:term, o:term.
 build-inductive-fun-wrapped Ind Params [] TJSkel FJSkel :-
-  build-to-json-term Ind Params TJSkel,
+  std.assert! (build-to-json-term Ind Params TJSkel) "build-to-json-term failed",
   std.assert! (build-from-json-term Ind Params FJSkel) "build-from-json-term failed".
 build-inductive-fun-wrapped Ind Params [Ti|Tis] TJSkel FJSkel :-
   @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\

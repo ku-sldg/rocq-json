@@ -3,6 +3,9 @@
 From RocqJSON Require Import JSON_Error_Strings.
 From RocqJSON Require Export JSON_Type JSON_Stringifiable.
 From RocqCandy Require Import All.
+From Stdlib Require Import String.
+
+Local Open Scope string_scope.
 
 (* The JSONIFIABLE Class *)
 Class Jsonifiable (A : Type) := {
@@ -179,6 +182,32 @@ eapply Build_Jsonifiable with
                   | _ => err (errStr_json_wrong_type "list" js)
                   end).
 induction a; jsonifiable_hammer.
+Defined.
+
+Definition option_to_JSON {A : Type} `{Jsonifiable A} (v : option A) : JSON :=
+  match v with
+  | Some a => JSON_Object [("Some", to_JSON a)]
+  | None => JSON_String "None"
+  end.
+
+Definition option_from_JSON {A : Type} `{Jsonifiable A} (js : JSON) : Result (option A) string :=
+  match js with
+  | JSON_String tag =>
+      if string_dec tag "None" then res None
+      else err err_str_json_unrecognized_constructor
+  | JSON_Object [(tag, a)] =>
+      if string_dec tag "Some" then
+        a <- from_JSON a ;;
+        res (Some a)
+      else err err_str_json_unrecognized_constructor
+  | _ => err err_str_json_no_constructor_name_string
+  end.
+
+Global Instance Jsonifiable_option {A : Type} `{Jsonifiable A} : Jsonifiable (option A).
+eapply Build_Jsonifiable with
+  (to_JSON := option_to_JSON)
+  (from_JSON := option_from_JSON).
+destruct a; simpl; jsonifiable_hammer.
 Defined.
 
 Definition map_serial_serial_to_JSON {A B : Type} `{Stringifiable A, Stringifiable B, DecEq A} (m : Map A B) : JSON :=
