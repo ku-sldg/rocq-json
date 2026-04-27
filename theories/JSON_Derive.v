@@ -127,27 +127,32 @@ Elpi Accumulate derive lp:{{
 (* Simple enum type to test with *)
 Inductive color := Red | Green | Blue.
 Elpi derive.jsonifiable color.
-Check color_Jsonifiable.
 Definition test_color := Green.
-Compute (to_JSON test_color : JSON).
-Compute (from_JSON (to_JSON test_color) : Result color string).
-Print color_canonical_jsonification.
+Example test_color_to_JSON :
+  to_JSON test_color = JSON_String "Green"
+  := eq_refl.
+Example test_color_roundtrip :
+  from_JSON (to_JSON test_color) = res test_color
+  := canonical_jsonification test_color.
 
 (* Constructors with non-recursive arguments (nat is Jsonifiable) ===== *)
 Inductive foo := Fa (n : nat) | Fb (m1 m2 : nat).
 Elpi derive.jsonifiable foo.
-Check foo_Jsonifiable.
 Definition test_foo := Fb 7 13.
-Compute (to_JSON test_foo : JSON).
-Compute (from_JSON (to_JSON test_foo) : Result foo string).
+Example test_foo_to_JSON :
+  to_JSON test_foo = JSON_Object [("Fb", JSON_Object [("m1", JSON_Nat 7); ("m2", JSON_Nat 13)])] 
+  := eq_refl.
+Example test_foo_roundtrip :
+  from_JSON (to_JSON test_foo) = res test_foo 
+  := canonical_jsonification test_foo.
 
 (* ===== Test 3: Recursive type ===== *)
 Inductive tree := Leaf | Node (l : tree) (n : nat) (r : tree).
 Elpi derive.jsonifiable tree.
-Check tree_Jsonifiable.
 Definition test_tree := Node (Node Leaf 1 Leaf) 2 (Node Leaf 3 Leaf).
-Compute (to_JSON test_tree : JSON).
-Compute (from_JSON (to_JSON test_tree) : Result tree string).
+Example test_tree_roundtrip :
+  from_JSON (to_JSON test_tree) = res test_tree
+  := canonical_jsonification test_tree.
 
 (* ===== Test 4: Parametric recursive type ===== *)
 Inductive jtree (A : Type) :=
@@ -156,10 +161,10 @@ Inductive jtree (A : Type) :=
 Arguments JLeaf {A}.
 Arguments JNode {A} _ _ _.
 Elpi derive.jsonifiable jtree.
-Check jtree_Jsonifiable.
 Definition test_jtree := JNode 42 JLeaf JLeaf.
-Compute (to_JSON test_jtree : JSON).
-Compute (from_JSON (to_JSON test_jtree) : Result (jtree nat) string).
+Example test_jtree_roundtrip :
+  from_JSON (to_JSON test_jtree) = res test_jtree
+  := canonical_jsonification test_jtree.
 
 (* Testing with Uniform Inductive Parameters disabled as well *)
 Unset Uniform Inductive Parameters.
@@ -171,10 +176,10 @@ Inductive ab_tree (A B : Type) :=
 Arguments ABLeaf {A B}.
 Arguments ABNode {A B} _ _ _.
 Elpi derive.jsonifiable ab_tree.
-Check ab_tree_Jsonifiable.
 Definition test_ab_tree := ABNode 1 ABLeaf true.
-Compute (to_JSON test_ab_tree : JSON).
-Compute (from_JSON (to_JSON test_ab_tree) : Result (ab_tree nat bool) string).
+Example test_ab_tree_roundtrip :
+  from_JSON (to_JSON test_ab_tree) = res test_ab_tree
+  := canonical_jsonification test_ab_tree.
 
 (* ===== Test 6: Record type ===== *)
 Record test_rec := {
@@ -183,10 +188,10 @@ Record test_rec := {
   c : tree
 }.
 Elpi derive.jsonifiable test_rec.
-Check test_rec_Jsonifiable.
 Definition test_test_rec := {| a := 42; b := true; c := Node Leaf 1 Leaf |}.
-Compute (to_JSON test_test_rec : JSON).
-Compute (from_JSON (to_JSON test_test_rec) : Result test_rec string).
+Example test_test_rec_roundtrip :
+  from_JSON (to_JSON test_test_rec) = res test_test_rec
+  := canonical_jsonification test_test_rec.
 
 (* ===== Test 7: Polymorphic Record type ===== *)
 Record prec (A B : Type) := {
@@ -195,11 +200,11 @@ Record prec (A B : Type) := {
   pc : ab_tree A B
 }.
 Elpi derive.jsonifiable prec.
-Check prec_Jsonifiable.
 Definition test_prec :=
   {| pa := 42; pb := true; pc := (ABNode 0 ABLeaf false) |}.
-Compute (to_JSON test_prec : JSON).
-Compute (from_JSON (to_JSON test_prec) : Result (prec nat bool) string).
+Example test_prec_roundtrip :
+  from_JSON (to_JSON test_prec) = res test_prec
+  := canonical_jsonification test_prec.
 
 (* ==== Test 8: Integers ===== *)
 Elpi derive.jsonifiable positive.
@@ -214,8 +219,9 @@ Arguments NNode {A} _.
 Elpi derive.jsonifiable nested_tree.
 
 Definition test_nested_tree := NNode [(42, NLeaf); (7, NNode [(13, NLeaf)])].
-Compute (to_JSON test_nested_tree : JSON).
-Compute (from_JSON (to_JSON test_nested_tree) : Result (nested_tree nat) string).
+Example test_nested_tree_roundtrip :
+  from_JSON (to_JSON test_nested_tree) = res test_nested_tree
+  := canonical_jsonification test_nested_tree.
 
 (* ===== Test 10: Complex Nested Type ===== *)
 Inductive nested_tree_2 (A B : Type) :=
@@ -226,8 +232,9 @@ Arguments NNode2 {A B} _ _.
 Elpi derive.jsonifiable nested_tree_2.
 
 Definition test_nested_tree_2 := NNode2 [(42, NLeaf2); (7, NNode2 [(13, NLeaf2)] [])] [(true, NLeaf2); (false, NNode2 [] [(true, NLeaf2)])].
-Compute (to_JSON test_nested_tree_2 : JSON).
-Compute (from_JSON (to_JSON test_nested_tree_2) : Result (nested_tree_2 nat bool) string).
+Example test_nested_tree_2_roundtrip :
+  from_JSON (to_JSON test_nested_tree_2) = res test_nested_tree_2
+  := canonical_jsonification test_nested_tree_2.
 
 (* ===== Test 11: A many constructor type ===== *)
 Inductive many_constructors :=
@@ -243,10 +250,12 @@ Inductive many_constructors :=
 Elpi derive.jsonifiable many_constructors.
 Definition test_many_constructors := MC8 (NNode2 [(42, NLeaf2); (7, NNode2 [(13, NLeaf2)] [])] [(true, NLeaf2); (false, NNode2 [] [(true, NLeaf2)])]).
 Definition test_many_constructors2 := MC4 [1; 2; 3; 4].
-Compute (to_JSON test_many_constructors : JSON).
-Compute (from_JSON (to_JSON test_many_constructors) : Result many_constructors string).
-Compute (to_JSON test_many_constructors2 : JSON).
-Compute (from_JSON (to_JSON test_many_constructors2) : Result many_constructors string).
+Example test_many_constructors_roundtrip :
+  from_JSON (to_JSON test_many_constructors) = res test_many_constructors
+  := canonical_jsonification test_many_constructors.
+Example test_many_constructors2_roundtrip :
+  from_JSON (to_JSON test_many_constructors2) = res test_many_constructors2
+  := canonical_jsonification test_many_constructors2.
 
 (* ===== Test 12: Non-recursive option fields ===== *)
 Inductive option_payload :=
@@ -255,8 +264,6 @@ Inductive option_payload :=
 Elpi derive.jsonifiable option_payload.
 
 Definition test_option_payload := OPMix (Some 5) None.
-Compute (to_JSON test_option_payload : JSON).
-Compute (from_JSON (to_JSON test_option_payload) : Result option_payload string).
 Example test_option_payload_roundtrip :
   from_JSON (to_JSON test_option_payload) = res test_option_payload.
 Proof. exact (canonical_jsonification test_option_payload). Qed.
@@ -270,8 +277,6 @@ Elpi derive.jsonifiable option_rec.
 
 Definition test_option_rec :=
   {| or_n := Some 42; or_t := Some (Node Leaf 1 Leaf) |}.
-Compute (to_JSON test_option_rec : JSON).
-Compute (from_JSON (to_JSON test_option_rec) : Result option_rec string).
 Example test_option_rec_roundtrip :
   from_JSON (to_JSON test_option_rec) = res test_option_rec.
 Proof. exact (canonical_jsonification test_option_rec). Qed.
@@ -286,8 +291,6 @@ Elpi derive.jsonifiable nested_tree_3.
 
 Definition test_nested_tree_3 : nested_tree_3 nat bool :=
   NNode3 43 true (Some (NNode3 7 false None)).
-Compute (to_JSON test_nested_tree_3 : JSON).
-Compute (from_JSON (to_JSON test_nested_tree_3) : Result (nested_tree_3 nat bool) string).
 Example test_nested_tree_3_roundtrip :
   from_JSON (to_JSON test_nested_tree_3) = res test_nested_tree_3.
 Proof. exact (canonical_jsonification test_nested_tree_3). Qed.
@@ -302,8 +305,6 @@ Elpi derive.jsonifiable nested_tree_4.
 
 Definition test_nested_tree_4 : nested_tree_4 nat bool string :=
   NNode4 [(42, Some NLeaf4); (7, Some (NNode4 [(13, None)]))].
-Compute (to_JSON test_nested_tree_4 : JSON).
-Compute (from_JSON (to_JSON test_nested_tree_4) : Result (nested_tree_4 nat bool string) string).
 Example test_nested_tree_4_roundtrip :
   from_JSON (to_JSON test_nested_tree_4) = res test_nested_tree_4.
 Proof. exact (canonical_jsonification test_nested_tree_4). Qed.

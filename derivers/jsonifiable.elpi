@@ -1164,7 +1164,7 @@ build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
   coq.env.projections Ind OptProjs,
   unopt-projections OptProjs Projs,
   not (Projs = []), !,
-  coq.say "derive.jsonifiable: record detected, using field-name JSON format",
+  % coq.say "derive.jsonifiable: record detected, using field-name JSON format",
   record-field-jsonifiable-types Ind Params FieldTys,
   std.assert! (build-record-fun-wrapped Ind Params Projs FieldTys TJSkel FJSkel)
     "build-record-fun-wrapped failed".
@@ -1340,12 +1340,7 @@ main (indt Ind) Prefix C :- std.do! [
     coq.ltac.call TacName [] g gl ok
   ) G RemainingGoals,
   (if (RemainingGoals = [])
-     (coq.say "derive.jsonifiable: canonical proof closed")
-     (coq.warning "derive.jsonifiable" "derive.jsonifiable.incomplete-proof"
-       "derive.jsonifiable: canonical_jsonification proof could not be closed automatically; Jsonifiable instance will NOT be registered. Proof state may give clues.",
-      coq.say "derive.jsonifiable: PROOF INCOMPLETE, remaining goals:" RemainingGoals)),
-  % Only register the Jsonifiable instance if the proof is complete.
-  if (RemainingGoals = []) (std.do! [
+    (std.do! [
     coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
     coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
 
@@ -1360,7 +1355,13 @@ main (indt Ind) Prefix C :- std.do! [
     coq.elpi.accumulate _ "derive.jsonifiable.db"
       (clause _ _ (jsonifiable-done (indt Ind))),
     C = [jsonifiable-done (indt Ind)]
-  ]) (C = [])
+    ]) 
+     (coq.warning "derive.jsonifiable" "derive.jsonifiable.incomplete-proof"
+       "derive.jsonifiable: canonical_jsonification proof could not be closed automatically; Jsonifiable instance will NOT be registered. Proof state may give clues.",
+      coq.say "derive.jsonifiable: PROOF INCOMPLETE, remaining goals:" RemainingGoals,
+      C = [])
+  )
+  % Only register the Jsonifiable instance if the proof is complete.
 ].
 
 main (indc _) _ _ :- coq.error "derive.jsonifiable: cannot be called on a constructor".
