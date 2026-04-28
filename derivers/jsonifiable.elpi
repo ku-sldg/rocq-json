@@ -227,6 +227,12 @@ fold-ctor-views [Ctor|Ctors] Acc F Result :-
   F Ctor Acc Next,
   fold-ctor-views Ctors Next F Result.
 
+pred all-nullary-ctors i:list json-ctor-view.
+all-nullary-ctors [].
+all-nullary-ctors [Ctor|Ctors] :-
+  {ctor-view-arity Ctor} = 0,
+  all-nullary-ctors Ctors.
+
 pred arg-view-jsonifiable-type i:json-arg-view, o:term.
 arg-view-jsonifiable-type (arg-view _ Ty (arg-external Ty)) Ty.
 
@@ -1464,6 +1470,33 @@ build-record-proof-type-inner Ind TJC FJC TPs TCPs [Ti|Tis] RevFInsts ProofTySke
     build-record-proof-type-inner Ind TJC FJC TPs TCPs Tis [JI|RevFInsts] (InnerTy JI),
   ProofTySkel = prod `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerTy ji).
 
+func enum-proof-rty term, term, term, term, term, list term, list term -> term.
+enum-proof-rty TJApp FJApp ResultTy ResG _ Vars _ R :-
+  std.last Vars V,
+  R = app [ {{@eq}}, ResultTy
+          , app [FJApp, app [TJApp, V]]
+          , app [ResG, _, _, V]
+          ].
+
+func enum-proof-branch term, term, list term, list term -> term.
+enum-proof-branch _K _KTy _Vars _VarTys {{ eq_refl }}.
+
+pred pure-enum-proof-term i:inductive, i:constant, i:constant, o:term.
+pure-enum-proof-term Ind TJC FJC (fun `v` IndTy (v\ Body v)) :-
+  declaration-view Ind [] (inductive-view _ _ CtorViews),
+  all-nullary-ctors CtorViews,
+  coq.mk-app (global (indt Ind)) [] IndTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
+  coq.locate "res" (indc ResC),
+  TJApp = global (const TJC),
+  FJApp = global (const FJC),
+  @pi-decl `v` IndTy V\
+    coq.build-match V IndTy
+      (enum-proof-rty TJApp FJApp ResultTy (global (indc ResC)))
+      enum-proof-branch
+      (Body V).
+
 % build-fun-wrapped-instance: builds the Build_Jsonifiable application wrapped
 % in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
 pred build-fun-wrapped-instance
@@ -1543,18 +1576,28 @@ main (indt Ind) Prefix C :- std.do! [
   % --- Phase 3: Prove canonical_jsonification via Ltac1 ---
   build-prod-wrapped-proof-type Ind TJC FJC ParNo Arity [] [] ProofTy,
   % coq.say "derive.jsonifiable: proof type =" ProofTy,
-  % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
-  std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
-    "derive.jsonifiable: canonical proof typecheck failed",
-  % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
-  coq.ltac.collect-goals Bo Goals _SGoals,
-  Goals = [G|_],
-  (if (coq.env.recursive? Ind)
-    (TacName = "derive_jsonifiable_proof")
-    (TacName = "derive_jsonifiable_proof_norec")),
-  coq.ltac.open (g\gl\
-    coq.ltac.call TacName [] g gl ok
-  ) G RemainingGoals,
+  (if (ParNo = 0, pure-enum-proof-term Ind TJC FJC ProofSkel)
+    (std.do! [
+      std.assert-ok! (coq.elaborate-skeleton ProofSkel _ProofSkelTy Bo)
+        "derive.jsonifiable: pure enum proof elaboration failed",
+      std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
+        "derive.jsonifiable: pure enum proof typecheck failed",
+      RemainingGoals = []
+    ])
+    (std.do! [
+      % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
+      std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
+        "derive.jsonifiable: canonical proof typecheck failed",
+      % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
+      coq.ltac.collect-goals Bo Goals _SGoals,
+      Goals = [G|_],
+      (if (coq.env.recursive? Ind)
+        (TacName = "derive_jsonifiable_proof")
+        (TacName = "derive_jsonifiable_proof_norec")),
+      coq.ltac.open (g\gl\
+        coq.ltac.call TacName [] g gl ok
+      ) G RemainingGoals
+    ])),
   (if (RemainingGoals = [])
     (std.do! [
     coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
