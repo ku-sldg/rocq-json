@@ -76,6 +76,10 @@ Time Elpi derive nibble_plus_three. *)
 (* Tier 1: Trivial Types, Enums, Records, and Structural Anomalies    *)
 (* ================================================================== *)
 
+(* 1.0 The Empty Type *)
+Inductive EmptyType : Type := .
+Elpi derive.jsonifiable EmptyType.
+
 (* 1.1. The Unit Type *)
 Inductive JSONUnit : Type := 
 | JsonTt.

@@ -1047,8 +1047,8 @@ build-obj-dispatch-loop Ind Params Self [CtorView|CtorViews] Tag Kvs Default Err
 % ============================================================================
 
 pred build-from-json-body
-  i:inductive, i:list term, i:term, i:term, i:list json-ctor-view, i:term, o:term.
-build-from-json-body Ind Params SelfRef JSONTy CtorViews JS Body :-
+  i:inductive, i:list term, i:term, i:term, i:term, i:list json-ctor-view, i:term, o:term.
+build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
   str-ty StrTy,
   nat-ty NatTy,
   bool-ty BoolTy,
@@ -1120,7 +1120,7 @@ build-from-json-body Ind Params SelfRef JSONTy CtorViews JS Body :-
   if (WithArgsViews = [])
      (ObjBranch = fun `_` MapStrJsonTy (_\ ErrNoCons))
      (ObjBranch = fun `m` MapStrJsonTy (mm\ MapMatchF mm)),
-  Body = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
+  Body = match JS (fun `_` JSONTy (_\ ResultTy))
     [ ObjBranch
     , fun `_` ListJSONTy   (_\ ErrNoCons)
     , StrBranch
@@ -1140,11 +1140,13 @@ pred build-from-json-term i:inductive, i:list term, o:term.
 build-from-json-term Ind Params (fun `js` JSONTy (js\ R js)) :-
   not (coq.env.recursive? Ind), !,
   declaration-view Ind Params (inductive-view _ _ CtorViews),
-  coq.mk-app (global (indt Ind)) Params _IndTy,
+  coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
   @pi-decl `js` JSONTy JS\
     % SelfRef unused for non-recursive types; pass dummy term (global indt)
-    build-from-json-body Ind Params (global (indt Ind)) JSONTy CtorViews JS (R JS).
+    build-from-json-body Ind Params (global (indt Ind)) JSONTy ResultTy CtorViews JS (R JS).
 
 % Recursive: fix from_json (js : JSON) {struct js} := match js with ...
 % Uses @pi-decl to get pi-constants for HO unification: R Self JS = body.
@@ -1161,7 +1163,7 @@ build-from-json-term Ind Params
     % Pass R Self JS as the output — this puts the output in "pattern form"
     % (applied to pi-constants) so func's mode system can do HO-unification.
     % After build-from-json-body runs, R is unified with fn\ js\ match js ... .
-    std.assert! (build-from-json-body Ind Params Self JSONTy CtorViews JS (R Self JS))
+    std.assert! (build-from-json-body Ind Params Self JSONTy ResultTy CtorViews JS (R Self JS))
       "build-from-json-body failed".
 
 % ============================================================================

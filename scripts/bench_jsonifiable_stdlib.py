@@ -24,13 +24,13 @@ from typing import Iterable
 
 
 DECL_RE = re.compile(
-    r"\b(?:Polymorphic\s+|Monomorphic\s+|Cumulative\s+|Private\s+)*"
+    r"(?<!\bExtract\s)\b(?:Polymorphic\s+|Monomorphic\s+|Cumulative\s+|Private\s+)*"
     r"(Inductive|CoInductive|Variant|Record|Structure)\s+"
     r"([A-Za-z_][A-Za-z0-9_']*)"
 )
 WITH_RE = re.compile(r"^\s*with\s+([A-Za-z_][A-Za-z0-9_']*)")
 MODULE_RE = re.compile(
-    r"^\s*Module\s+(?!(?:Type|Import|Export|Include)\b)([A-Za-z_][A-Za-z0-9_']*)\b"
+    r"^\s*Module\s+(?:(?:Export|Import)\s+)?(?!(?:Type|Include)\b)([A-Za-z_][A-Za-z0-9_']*)\b"
 )
 END_RE = re.compile(r"^\s*End\s+([A-Za-z_][A-Za-z0-9_']*)\s*\.")
 TIME_RE = re.compile(r"Finished transaction in\s+([0-9.]+)\s+secs")
@@ -44,6 +44,7 @@ class Candidate:
     arity: str
     has_prop_argument: bool
     has_indices: bool
+    has_non_sort_parameter: bool
     import_module: str
     module: str
     name: str
@@ -63,6 +64,7 @@ class ProbeResult:
     arity: str
     has_prop_argument: bool
     has_indices: bool
+    has_non_sort_parameter: bool
     module: str
     name: str
     logical_name: str
@@ -188,6 +190,28 @@ def declaration_has_indices(snippet: str) -> bool:
     return not bool(re.fullmatch(r"(Prop|Set|Type(?:@\{[^}]+\})?)", arity))
 
 
+def parameter_surface(snippet: str) -> str:
+    header = declaration_header(snippet)
+    colon = final_top_level_colon(header)
+    return header if colon is None else header[:colon]
+
+
+def binder_type_is_sort(ty: str) -> bool:
+    return bool(re.fullmatch(r"(Set|Type(?:@\{[^}]+\})?)", ty.strip()))
+
+
+def declaration_has_non_sort_parameter(snippet: str) -> bool:
+    surface = parameter_surface(snippet)
+    for match in re.finditer(r"[\(\{]([^()\{\}]*)[\)\}]", surface):
+        binder = match.group(1)
+        if ":" not in binder:
+            continue
+        ty = binder.rsplit(":", 1)[1].strip()
+        if not binder_type_is_sort(ty):
+            return True
+    return False
+
+
 def make_candidate(
     root_name: str,
     kind: str,
@@ -207,6 +231,7 @@ def make_candidate(
         arity,
         declaration_has_prop_argument(snippet),
         declaration_has_indices(snippet),
+        declaration_has_non_sort_parameter(snippet),
         import_module,
         module,
         name,
@@ -237,7 +262,7 @@ def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
                 stack = stack[: stack.index(ended)]
 
         module_match = MODULE_RE.match(line)
-        if module_match and not line.rstrip().endswith(":="):
+        if module_match and ":=" not in line:
             stack.append(module_match.group(1))
 
         module = ".".join([base_module, *stack])
@@ -334,6 +359,8 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
         return "coinductive-not-supported"
     if "cannot be called on a constant" in text:
         return "not-an-inductive"
+    if "global reference not found" in text:
+        return "scanner-or-logical-path"
     if "which should be set, prop or type" in text:
         return "indexed-family-not-supported"
     if "expected: closed_term" in text:
@@ -346,6 +373,8 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
         return "proof-not-closed"
     if "build-to-json-term failed" in text:
         return "to-json-generation-not-supported"
+    if "build-record-fun-wrapped failed" in text:
+        return "record-generation-not-supported"
     if "to_json elaboration failed" in text:
         return "to-json-elaboration-failed"
     if "from_json elaboration failed" in text:
@@ -386,6 +415,7 @@ def probe_candidate(
                 f"   arity: {candidate.arity}",
                 f"   has Prop argument: {candidate.has_prop_argument}",
                 f"   has indices: {candidate.has_indices}",
+                f"   has non-sort parameter: {candidate.has_non_sort_parameter}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 require_line(candidate),
                 derive_command(candidate),
@@ -413,6 +443,7 @@ def probe_candidate(
             candidate.arity,
             candidate.has_prop_argument,
             candidate.has_indices,
+            candidate.has_non_sort_parameter,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -441,6 +472,7 @@ def probe_candidate(
             candidate.arity,
             candidate.has_prop_argument,
             candidate.has_indices,
+            candidate.has_non_sort_parameter,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -482,6 +514,7 @@ def write_benchmark_file(path: Path, candidates: list[Candidate]) -> None:
                 f"(* {index}. {candidate.logical_name}",
                 f"   kind: {candidate.kind}; target sort: {candidate.target_sort}",
                 f"   arity: {candidate.arity}",
+                f"   has non-sort parameter: {candidate.has_non_sort_parameter}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 derive_command(candidate),
                 "",
@@ -526,6 +559,7 @@ def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
                 f"- arity: `{row.arity}`",
                 f"- has Prop argument: `{row.has_prop_argument}`",
                 f"- has indices: `{row.has_indices}`",
+                f"- has non-sort parameter: `{row.has_non_sort_parameter}`",
                 f"- source: `{row.source}:{row.line}`",
                 f"- probe file: `{row.probe_file}`",
                 f"- full log: `{row.log_file}`",
@@ -563,6 +597,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="probe declarations whose final arity still has non-sort arguments, e.g. bool -> Set",
     )
+    parser.add_argument(
+        "--include-non-sort-parameters",
+        action="store_true",
+        help="probe declarations with explicit parameters whose type is not exactly Set or Type",
+    )
     return parser.parse_args()
 
 
@@ -571,6 +610,8 @@ def skip_reason(candidate: Candidate, args: argparse.Namespace) -> str | None:
         return "prop-target"
     if candidate.has_prop_argument and not args.include_prop_arguments:
         return "prop-argument"
+    if candidate.has_non_sort_parameter and not args.include_non_sort_parameters:
+        return "non-sort-parameter"
     if candidate.has_indices and not args.include_indexed_families:
         return "indexed-family"
     return None
@@ -682,6 +723,7 @@ def main(args: argparse.Namespace) -> int:
                 "arity",
                 "has_prop_argument",
                 "has_indices",
+                "has_non_sort_parameter",
                 "source",
                 "line",
                 "rocq_time_seconds",
@@ -699,6 +741,7 @@ def main(args: argparse.Namespace) -> int:
                     "arity": candidate.arity,
                     "has_prop_argument": candidate.has_prop_argument,
                     "has_indices": candidate.has_indices,
+                    "has_non_sort_parameter": candidate.has_non_sort_parameter,
                     "source": candidate.source,
                     "line": candidate.line,
                     "rocq_time_seconds": seconds,
