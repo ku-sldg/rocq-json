@@ -1,0 +1,29 @@
+(coq.extraction
+ (prelude JSON_Derive_Tests)
+ (theories
+  rocq_json_derivers
+  Stdlib
+  Ltac2
+  RocqCandy
+  elpi
+  elpi_elpi
+  elpi.apps.derive.elpi
+  RocqJSON)
+ (extracted_modules enum_256 enum_256_2))
+
+(executable
+ (name harness)
+ (modules harness enum_256))
+
+(executable
+ (name harness_2)
+ (modules harness_2 enum_256_2))
+
+(rule
+ (target benched.stamp)
+ (deps
+  harness.exe
+  harness_2.exe
+  (:bench bench_time.sh))
+ (action
+  (run %{bench})))
