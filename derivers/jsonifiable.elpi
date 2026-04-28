@@ -659,6 +659,24 @@ strip-code-pairs C [pr S K|Rest] Out :-
           Out = [pr Tail K|RestOut])
          (strip-code-pairs C Rest Out)).
 
+func code-bit int, int -> int.
+code-bit C 0 B :- B is C mod 2.
+code-bit C 1 B :- B is (C div 2) mod 2.
+code-bit C 2 B :- B is (C div 4) mod 2.
+code-bit C 3 B :- B is (C div 8) mod 2.
+code-bit C 4 B :- B is (C div 16) mod 2.
+code-bit C 5 B :- B is (C div 32) mod 2.
+code-bit C 6 B :- B is (C div 64) mod 2.
+code-bit C 7 B :- B is (C div 128) mod 2.
+
+pred split-codes-by-bit i:int, i:list int, o:list int, o:list int.
+split-codes-by-bit _ [] [] [].
+split-codes-by-bit Pos [Code|Codes] Zeros Ones :-
+  split-codes-by-bit Pos Codes Zeros0 Ones0,
+  if ({code-bit Code Pos} = 0)
+     (Zeros = [Code|Zeros0], Ones = Ones0)
+     (Zeros = Zeros0, Ones = [Code|Ones0]).
+
 pred enum-constructor-result i:term, i:json-ctor-view, o:term.
 enum-constructor-result ResG CtorView KApp :-
   K = {ctor-view-constructor CtorView},
@@ -673,7 +691,6 @@ build-string-trie-dispatch S Pairs Default Body :-
   coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
   coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAsciiCtor,
   coq.locate "Stdlib.Strings.Ascii.ascii"   (indt AsciiInd),
-  coq.locate "Stdlib.Strings.Ascii.eqb" (const AsciiEqbC),
   coq.locate "res" (indc ResC),
   bool-ty BoolTy,
   str-ty StrTy,
@@ -681,15 +698,15 @@ build-string-trie-dispatch S Pairs Default Body :-
     S Pairs Default
     (global GRfalse) (global GRtrue) (global GRAsciiCtor)
     (global (indt AsciiInd))
-    (global (const AsciiEqbC)) (global (indc ResC)) BoolTy
+    (global (indc ResC)) BoolTy
     StrTy Body.
 
 pred build-string-trie-dispatch-loop
   i:term, i:list (pair string json-ctor-view), i:term,
-  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-string-trie-dispatch-loop
     S Pairs Default FalseG TrueG AsciiCtorG AsciiTy
-    AsciiEqbG ResG BoolTy StrTy Body :-
+    ResG BoolTy StrTy Body :-
   Terminal = {terminal-ctor Pairs},
   if (Terminal = some CtorView)
      (enum-constructor-result ResG CtorView EmptyBranch)
@@ -700,7 +717,7 @@ build-string-trie-dispatch-loop
   @pi-decl `rest` StrTy REST\
     build-char-dispatch
       CH REST Codes Nonempty Default
-      FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy
+      FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy
       (ConsBranch CH REST),
   Body = match S (fun `_` StrTy (_\ {{Result _ string}}))
     [ EmptyBranch
@@ -709,25 +726,66 @@ build-string-trie-dispatch-loop
 
 pred build-char-dispatch
   i:term, i:term, i:list int, i:list (pair string json-ctor-view), i:term,
-  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-char-dispatch
     _CH _REST [] _Pairs Default
-    _FalseG _TrueG _AsciiCtorG _AsciiTy _AsciiEqbG _ResG _BoolTy _StrTy Default :- !.
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _ResG _BoolTy _StrTy Default :- !.
 build-char-dispatch
-    CH REST [Code|Codes] Pairs Default
-    FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy Body :-
-  int_to_ascii_term FalseG TrueG AsciiCtorG Code CharTerm,
+    CH REST Codes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy Body :-
+  coq.build-match CH AsciiTy
+    (_\_\_\ R\ R = {{Result _ string}})
+    (K\ KTy\ Vars\ VarTys\
+      build-ascii-dispatch-branch
+        REST Codes Pairs Default
+        FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy
+        K KTy Vars VarTys)
+    Body.
+
+pred build-ascii-dispatch-branch
+  i:term, i:list int, i:list (pair string json-ctor-view), i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term,
+  i:term, i:term, i:list term, i:list term, o:term.
+build-ascii-dispatch-branch
+    REST Codes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy
+    _K _KTy [B0, B1, B2, B3, B4, B5, B6, B7] _VarTys Body :-
+  build-char-bit-dispatch
+    REST [B0, B1, B2, B3, B4, B5, B6, B7] 0 Codes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy Body.
+build-ascii-dispatch-branch
+    _REST _Codes _Pairs _Default
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _ResG _BoolTy _StrTy
+    K _KTy Vars VarTys _Body :-
+  coq.error "derive.jsonifiable: expected ascii branch with 8 fields" K Vars VarTys.
+
+pred build-char-bit-dispatch
+  i:term, i:list term, i:int, i:list int, i:list (pair string json-ctor-view), i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-char-bit-dispatch
+    _REST _Bits _Pos [] _Pairs Default
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _ResG _BoolTy _StrTy Default :- !.
+build-char-bit-dispatch
+    REST _Bits 8 [Code|_] Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy Body :- !,
   MatchingPairs = {strip-code-pairs Code Pairs},
   build-string-trie-dispatch-loop
     REST MatchingPairs Default
     FalseG TrueG AsciiCtorG AsciiTy
-    AsciiEqbG ResG BoolTy StrTy MatchBody,
-  build-char-dispatch
-    CH REST Codes Pairs Default
-    FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy RestBody,
-  EqbApp = app [AsciiEqbG, CH, CharTerm],
-  Body = match EqbApp (fun `_` BoolTy (_\ {{Result _ string}}))
-    [ MatchBody, RestBody ].
+    ResG BoolTy StrTy Body.
+build-char-bit-dispatch
+    REST [Bit|Bits] Pos Codes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy Body :-
+  split-codes-by-bit Pos Codes ZeroCodes OneCodes,
+  NextPos is Pos + 1,
+  build-char-bit-dispatch
+    REST Bits NextPos ZeroCodes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy FalseBody,
+  build-char-bit-dispatch
+    REST Bits NextPos OneCodes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy TrueBody,
+  Body = match Bit (fun `_` BoolTy (_\ {{Result _ string}}))
+    [ TrueBody, FalseBody ].
 
 % ============================================================================
 % build-nested-from-json-deser: build a (JSON -> Result Ty string) deserializer
