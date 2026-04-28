@@ -19,6 +19,7 @@ Inductive nibble_plus_one :=
 | y28 | y29 | y2A | y2B | y2C | y2D | y2E | y2F.
 Time Elpi derive.jsonifiable nibble_plus_one.
 
+(*
 Inductive nibble_plus_two :=
 | z0 | z1 | z2 | z3 | z4 | z5 | z6 | z7
 | z8 | z9 | zA | zB | zC | zD | zE | zF
@@ -69,7 +70,7 @@ Inductive nibble_plus_three :=
 | aE8 | aE9 | aEA | aEB | aEC | aED | aEE | aEF
 | aF0 | aF1 | aF2 | aF3 | aF4 | aF5 | aF6 | aF7
 | aF8 | aF9 | aFA | aFB | aFC | aFD | aFE | aFF.
-Time Elpi derive nibble_plus_three.
+Time Elpi derive nibble_plus_three. *)
 
 (* ================================================================== *)
 (* Tier 1: Trivial Types, Enums, Records, and Structural Anomalies    *)

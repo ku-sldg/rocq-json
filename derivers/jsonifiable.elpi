@@ -102,6 +102,154 @@ type-head-name (app [global (indt GR) | _]) Name :- !, coq.gref->id (indt GR) Na
 type-head-name _ "unknown type constructor".
 
 % ============================================================================
+% Structural view of an inductive/record declaration.
+%
+% This is the first reusable layer for the deriver: inspect the declaration once,
+% classify constructor fields, and let JSON-specific code consume the view.
+% ============================================================================
+
+kind json-arg-class type.
+type arg-param term -> json-arg-class.
+type arg-external term -> json-arg-class.
+type arg-self json-arg-class.
+type arg-nested-supported string -> json-arg-class.
+type arg-nested-unsupported string -> json-arg-class.
+
+kind json-arg-view type.
+type arg-view string -> term -> json-arg-class -> json-arg-view.
+
+kind json-ctor-view type.
+type ctor-view constructor -> int -> string -> int -> list term -> list string -> list json-arg-view -> json-ctor-view.
+
+kind json-decl-view type.
+type inductive-view inductive -> list term -> list json-ctor-view -> json-decl-view.
+type record-view inductive -> list term -> list constant -> json-ctor-view -> json-decl-view.
+
+pred supported-recursive-shape i:inductive, i:term.
+supported-recursive-shape Ind (global (indt Ind)) :- !.
+supported-recursive-shape Ind (app [global (indt Ind) | _]) :- !.
+supported-recursive-shape Ind (app [global (indt ListIndt), ElemTy]) :-
+  coq.locate "Corelib.Init.Datatypes.list" (indt ListIndt), !,
+  type-contains-ind Ind ElemTy,
+  supported-recursive-shape Ind ElemTy.
+supported-recursive-shape Ind (app [global (indt OptionIndt), ElemTy]) :-
+  coq.locate "Corelib.Init.Datatypes.option" (indt OptionIndt), !,
+  type-contains-ind Ind ElemTy,
+  supported-recursive-shape Ind ElemTy.
+supported-recursive-shape Ind (app [global (indt ProdIndt), A, B]) :-
+  coq.locate "Corelib.Init.Datatypes.prod" (indt ProdIndt), !,
+  (if (type-contains-ind Ind A) (supported-recursive-shape Ind A) true),
+  (if (type-contains-ind Ind B) (supported-recursive-shape Ind B) true),
+  (type-contains-ind Ind A ; type-contains-ind Ind B).
+
+func classify-json-arg inductive, list term, term -> json-arg-class.
+classify-json-arg _Ind Params Ty (arg-param Ty) :- std.mem Params Ty, !.
+classify-json-arg Ind _Params Ty arg-self :- is-self-reference Ind Ty, !.
+classify-json-arg Ind _Params Ty (arg-nested-supported HeadName) :-
+  type-contains-ind Ind Ty,
+  supported-recursive-shape Ind Ty, !,
+  HeadName is {type-head-name Ty}.
+classify-json-arg Ind _Params Ty (arg-nested-unsupported HeadName) :-
+  type-contains-ind Ind Ty, !,
+  HeadName is {type-head-name Ty}.
+classify-json-arg _Ind _Params Ty (arg-external Ty).
+
+func build-arg-views inductive, list term, list string, list term -> list json-arg-view.
+build-arg-views _Ind _Params [] [] [].
+build-arg-views Ind Params [Name|Names] [Ty|Tys] [arg-view Name Ty Class|Views] :-
+  Class = {classify-json-arg Ind Params Ty},
+  build-arg-views Ind Params Names Tys Views.
+
+func constructor-view inductive, list term, constructor -> json-ctor-view.
+constructor-view Ind Params K (ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews) :-
+  coq.gref->id (indc K) KName,
+  coq.env.indc K KParNo _UParNo _Kno FullKTy,
+  apply-to-prods Params FullKTy KTy,
+  count-ctor-args KTy Arity ArgTys,
+  extract-name-type-pairs KTy NameTypePairs,
+  unique-names-from-pairs NameTypePairs ArgNames,
+  build-arg-views Ind Params ArgNames ArgTys ArgViews.
+
+func constructors-view inductive, list term, list constructor -> list json-ctor-view.
+constructors-view _Ind _Params [] [].
+constructors-view Ind Params [K|Ks] [View|Views] :-
+  View = {constructor-view Ind Params K},
+  constructors-view Ind Params Ks Views.
+
+func find-ctor-view constructor, list json-ctor-view -> json-ctor-view.
+find-ctor-view K [ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews|_] (ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews) :- !.
+find-ctor-view K [_|Views] View :- find-ctor-view K Views View.
+find-ctor-view K [] _ :-
+  coq.error "derive.jsonifiable: internal error, missing constructor view for" K.
+
+pred declaration-view i:inductive, i:list term, o:json-decl-view.
+declaration-view Ind Params (record-view Ind Params Projs CtorView) :-
+  coq.env.record? Ind _,
+  coq.env.projections Ind OptProjs,
+  unopt-projections OptProjs Projs,
+  not (Projs = []), !,
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort [Kn] _KTs,
+  CtorView = {constructor-view Ind Params Kn}.
+declaration-view Ind Params (inductive-view Ind Params CtorViews) :-
+  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  constructors-view Ind Params Kns CtorViews.
+
+func ctor-view-constructor json-ctor-view -> constructor.
+ctor-view-constructor (ctor-view K _ _ _ _ _ _) K.
+
+func ctor-view-param-count json-ctor-view -> int.
+ctor-view-param-count (ctor-view _ KParNo _ _ _ _ _) KParNo.
+
+func ctor-view-name json-ctor-view -> string.
+ctor-view-name (ctor-view _ _ Name _ _ _ _) Name.
+
+func ctor-view-arity json-ctor-view -> int.
+ctor-view-arity (ctor-view _ _ _ Arity _ _ _) Arity.
+
+func ctor-view-arg-types json-ctor-view -> list term.
+ctor-view-arg-types (ctor-view _ _ _ _ ArgTys _ _) ArgTys.
+
+func ctor-view-arg-names json-ctor-view -> list string.
+ctor-view-arg-names (ctor-view _ _ _ _ _ ArgNames _) ArgNames.
+
+func ctor-view-arg-views json-ctor-view -> list json-arg-view.
+ctor-view-arg-views (ctor-view _ _ _ _ _ _ ArgViews) ArgViews.
+
+func fold-arg-views list json-arg-view, A, (func json-arg-view, A -> A) -> A.
+fold-arg-views [] Acc _ Acc.
+fold-arg-views [Arg|Args] Acc F Result :-
+  F Arg Acc Next,
+  fold-arg-views Args Next F Result.
+
+func fold-ctor-views list json-ctor-view, A, (func json-ctor-view, A -> A) -> A.
+fold-ctor-views [] Acc _ Acc.
+fold-ctor-views [Ctor|Ctors] Acc F Result :-
+  F Ctor Acc Next,
+  fold-ctor-views Ctors Next F Result.
+
+pred arg-view-jsonifiable-type i:json-arg-view, o:term.
+arg-view-jsonifiable-type (arg-view _ Ty (arg-external Ty)) Ty.
+
+func collect-jsonifiable-type-from-arg json-arg-view, list term -> list term.
+collect-jsonifiable-type-from-arg Arg Acc [Ty|Acc] :-
+  arg-view-jsonifiable-type Arg Ty, !.
+collect-jsonifiable-type-from-arg _Arg Acc Acc.
+
+func collect-jsonifiable-types-from-args list json-arg-view -> list term.
+collect-jsonifiable-types-from-args Args Tys :-
+  fold-arg-views Args [] collect-jsonifiable-type-from-arg RevTys,
+  std.rev RevTys Tys.
+
+func collect-jsonifiable-types-from-ctor json-ctor-view, list term -> list term.
+collect-jsonifiable-types-from-ctor (ctor-view _ _ _ _ _ _ Args) Acc Result :-
+  collect-jsonifiable-types-from-args Args ArgTys,
+  std.append Acc ArgTys Result.
+
+func collect-jsonifiable-types-from-ctors list json-ctor-view -> list term.
+collect-jsonifiable-types-from-ctors Ctors Tys :-
+  fold-ctor-views Ctors [] collect-jsonifiable-types-from-ctor Tys.
+
+% ============================================================================
 % build-nested-to-json-arg: build a JSON term for V : Ty when Ty contains Ind.
 % SelfRef is the to_json fixpoint reference.
 % ============================================================================
@@ -308,14 +456,6 @@ extract-name-type-pairs (prod N ArgTy Body) [pr S ArgTy | Rest] :- !,
   pi x\ extract-name-type-pairs (Body x) Rest.
 extract-name-type-pairs _ [].
 
-% Extract argument names from a constructor's prod-chain.
-% `name` is opaque in coq-elpi; use coq.name->id to get the string.
-func extract-prod-names term -> list string.
-extract-prod-names (prod N _ Body) [S|Rest] :- !,
-  coq.name->id N S,
-  pi x\ extract-prod-names (Body x) Rest.
-extract-prod-names _ [].
-
 % Build JSON_String "KName" for 0-arg constructors.
 func build-json-string-ctor string -> term.
 build-json-string-ctor KName (app [global (indc StrGR), KNameCoqStr]) :-
@@ -363,86 +503,93 @@ build-named-obj-ctor KName ArgNames ArgJsons Body :-
 % (not lambda application) gets fresh holes via Prolog's clause renaming.
 
 % Build list of `@to_JSON _ _ Vi` skeletons for non-recursive types.
-func build-to-json-args list term, list term -> list term.
+func build-to-json-args list term, list json-arg-view -> list term.
 build-to-json-args [] [] [].
-build-to-json-args [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
-  build-to-json-args Vs VTys Rs.
+build-to-json-args [V|Vs] [_Arg|Args] [{{ @to_JSON _ _ lp:V }}|Rs] :-
+  build-to-json-args Vs Args Rs.
 
 % Same for recursive types: self-reference args use SelfRef directly,
 % and nested args (where Ind appears inside containers) use build-nested-to-json-arg.
-func build-to-json-args-rec inductive, term, list term, list term -> list term.
+func build-to-json-args-rec inductive, term, list term, list json-arg-view -> list term.
 build-to-json-args-rec _Ind _SelfRef [] [] [].
-build-to-json-args-rec Ind SelfRef [V|Vs] [VTy|VTys] [JsonV|Rs] :-
-  type-contains-ind Ind VTy, !,
+build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ _VTy arg-self|Args] [app [SelfRef, V]|Rs] :- !,
+  build-to-json-args-rec Ind SelfRef Vs Args Rs.
+build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ VTy (arg-nested-supported _)|Args] [JsonV|Rs] :- !,
   build-nested-to-json-arg Ind SelfRef V VTy JsonV,
-  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
-build-to-json-args-rec Ind SelfRef [V|Vs] [_VTy|VTys] [{{ @to_JSON _ _ lp:V }}|Rs] :-
-  build-to-json-args-rec Ind SelfRef Vs VTys Rs.
+  build-to-json-args-rec Ind SelfRef Vs Args Rs.
+build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view _ _VTy (arg-nested-unsupported HeadName)|_Args] _ :-
+  !,
+  coq.error
+    ("derive.jsonifiable: unsupported nested recursive occurrence under "
+     ^ HeadName
+     ^ ". Supported recursive containers are list, prod, and option.").
+build-to-json-args-rec Ind SelfRef [V|Vs] [_Arg|Args] [{{ @to_JSON _ _ lp:V }}|Rs] :-
+  build-to-json-args-rec Ind SelfRef Vs Args Rs.
 
-% Branch functions take Params (the type-param pi-consts) so they can apply them
-% to the full constructor type before extracting argument names.
-% coq.build-match passes (K, KTy, Vars, VarTys) where K already has params applied;
-% but for name extraction we use the global KTy (from coq.env.indc) which still has
-% the leading param prods. Applying Params strips those to get just the value args.
+% Branch functions consume the precomputed constructor view. coq.build-match
+% still supplies the branch variables, but names, arities, and field
+% classifications come from the structural view rather than re-reading KTy.
 
-func to-json-branch-norec list term, term, term, list term, list term -> term.
+func to-json-branch-norec list json-ctor-view, term, term, list term, list term -> term.
 % 0-arg constructor → JSON_String "KName"
-to-json-branch-norec _Params K _KTy [] [] Body :- !,
+to-json-branch-norec CtorViews K _KTy [] [] Body :- !,
   coq.safe-dest-app K (global (indc KI)) _,
-  coq.gref->id (indc KI) KName,
+  CtorView = {find-ctor-view KI CtorViews},
+  KName is {ctor-view-name CtorView},
   build-json-string-ctor KName Body.
 % N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
-to-json-branch-norec Params K _KTy Vars VarTys Body :-
+to-json-branch-norec CtorViews K _KTy Vars _VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
-  coq.gref->id (indc KI) KName,
-  coq.env.indc KI _ _ _ FullKTy,
-  apply-to-prods Params FullKTy AppliedKTy,
-  extract-name-type-pairs AppliedKTy NameTypePairs,
-  unique-names-from-pairs NameTypePairs ArgNames,
-  build-to-json-args Vars VarTys ArgJsons,
+  CtorView = {find-ctor-view KI CtorViews},
+  KName is {ctor-view-name CtorView},
+  ArgNames = {ctor-view-arg-names CtorView},
+  ArgViews = {ctor-view-arg-views CtorView},
+  build-to-json-args Vars ArgViews ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
-func to-json-branch-rec inductive, term, list term, term, term, list term, list term -> term.
+func to-json-branch-rec inductive, term, list json-ctor-view, term, term, list term, list term -> term.
 % 0-arg constructor → JSON_String "KName"
-to-json-branch-rec _Ind _SelfRef _Params K _KTy [] [] Body :- !,
+to-json-branch-rec _Ind _SelfRef CtorViews K _KTy [] [] Body :- !,
   coq.safe-dest-app K (global (indc KI)) _,
-  coq.gref->id (indc KI) KName,
+  CtorView = {find-ctor-view KI CtorViews},
+  KName is {ctor-view-name CtorView},
   build-json-string-ctor KName Body.
 % N-arg constructor → JSON_Object [("KName", JSON_Object [("n1",j1);...])]
-to-json-branch-rec Ind SelfRef Params K _KTy Vars VarTys Body :-
+to-json-branch-rec Ind SelfRef CtorViews K _KTy Vars _VarTys Body :-
   coq.safe-dest-app K (global (indc KI)) _,
-  coq.gref->id (indc KI) KName,
-  coq.env.indc KI _ _ _ FullKTy,
-  apply-to-prods Params FullKTy AppliedKTy,
-  extract-name-type-pairs AppliedKTy NameTypePairs,
-  unique-names-from-pairs NameTypePairs ArgNames,
-  build-to-json-args-rec Ind SelfRef Vars VarTys ArgJsons,
+  CtorView = {find-ctor-view KI CtorViews},
+  KName is {ctor-view-name CtorView},
+  ArgNames = {ctor-view-arg-names CtorView},
+  ArgViews = {ctor-view-arg-views CtorView},
+  build-to-json-args-rec Ind SelfRef Vars ArgViews ArgJsons,
   build-named-obj-ctor KName ArgNames ArgJsons Body.
 
-func build-to-json-term inductive, list term -> term.
+pred build-to-json-term i:inductive, i:list term, o:term.
 
 % Non-recursive case: fun a => match a with ...
 build-to-json-term Ind Params (fun `a` IndTy (a\ R a)) :-
   not (coq.env.recursive? Ind), !,
+  declaration-view Ind Params (inductive-view _ _ CtorViews),
   coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
       (_\_\_\ r\ r = JSONTy)
-      (k\ kt\ vs\ vts\ to-json-branch-norec Params k kt vs vts)
+      (k\ kt\ vs\ vts\ to-json-branch-norec CtorViews k kt vs vts)
       (R A).
 
 % Recursive case: fix self a => match a with ...
 build-to-json-term Ind Params
     {{ fix self (a : lp:IndTy) {struct a} : lp:JSONTy := lp:(R self a) }} :-
   coq.env.recursive? Ind, !,
+  declaration-view Ind Params (inductive-view _ _ CtorViews),
   coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   @pi-decl `self` {{ lp:IndTy -> lp:JSONTy }} Self\
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
       (_\_\_\ r\ r = JSONTy)
-      (k\ kt\ vs\ vts\ to-json-branch-rec Ind Self Params k kt vs vts)
+      (k\ kt\ vs\ vts\ to-json-branch-rec Ind Self CtorViews k kt vs vts)
       (R Self A).
 
 % ============================================================================
@@ -458,130 +605,21 @@ count-ctor-args (prod _ ArgTy Body) N [ArgTy|Rest] :- !,
 count-ctor-args _ 0 [].
 
 % ============================================================================
-% build-ctor-body: build the match on the args0 list + bind chain.
-%
-% Builds:
-%   match args0 with
-%   | [] => err (too few args)      -- unless N=0, then nil => res K
-%   | ja :: jr => from_JSON ja >>= fun d => <recurse with jr, [d|acc]>
-%   ...eventually at N=0...
-%   | [] => res (K v1 ... vn)
-%   | _ => err (too many args)
-%
-% Parameters:
-%   K        : constructor
-%   N        : number of args remaining to decode
-%   ArgTys   : their Coq types
-%   Args0    : the current list-of-JSON variable (lambda-bound by caller)
-%   ErrTerm  : error term for arity mismatch
-%   AccRev   : decoded args so far (reversed)
-% ============================================================================
-
-% ============================================================================
-% build-ctor-body: build the match-on-args + bind chain for one constructor.
-%
-% Parameters:
-%   Ind      : the inductive being derived (to detect self-reference args)
-%   SelfRef  : for recursive types, the fixpoint self-call function; for
-%              non-recursive types pass `hole` (never used for self-ref args)
-%   K        : constructor
-%   N        : number of remaining args to decode
-%   ArgTys   : types of remaining args
-%   Args0    : current list-of-JSON variable
-%   ErrTerm  : error for arity mismatch
-%   AccRev   : decoded args so far (reversed)
-% ============================================================================
-
-% Key insight: call build-ctor-body recursively INSIDE the Prolog lambda body
-% via {build-ctor-body ...}. This avoids HO-unification entirely. The lambda
-% variables jr and dv are free Prolog vars at call time, embedded correctly
-% in the resulting match term.
-
-func build-ctor-body inductive, term, constructor, int, list term, term, term, list term -> term.
-
-% Base case N=0: match nil => res (K acc), cons => err arity
-% Use make-holes for the constructor's type-parameter arguments so
-% coq.elaborate-skeleton can fill them in from context.
-build-ctor-body _Ind _SelfRef K 0 [] Args0 ErrTerm AccRev Body :- !,
-  json-ty JSONTy,
-  list-ty JSONTy ListJSONTy,
-  std.rev AccRev Acc,
-  coq.env.indc K KParNo _ _ _,
-  make-holes KParNo KHoles,
-  std.append KHoles Acc KAllArgs,
-  coq.mk-app (global (indc K)) KAllArgs KApp,
-  coq.locate "res" (indc ResC),
-  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ app [global (indc ResC), _, _, KApp]
-    , fun `_` JSONTy (_\ fun `_` ListJSONTy (_\ ErrTerm))
-    ].
-
-% Self-reference arg (exact indt, no params): use SelfRef ja for recursive decode
-build-ctor-body Ind SelfRef K N [IndTy|ArgTys] Args0 ErrTerm AccRev Body :-
-  IndTy = global (indt Ind), !,
-  N > 0, N1 is N - 1,
-  json-ty JSONTy,
-  list-ty JSONTy ListJSONTy,
-  coq.locate "bind" (const BindC),
-  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ ErrTerm
-    , fun `ja` JSONTy (ja\
-      fun `jr` ListJSONTy (jr\
-        app [global (const BindC), _, _, _,
-             app [SelfRef, ja],
-             fun `dv` IndTy (dv\
-               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
-    ].
-
-% Parametric self-reference: app [global (indt Ind) | Ps] — the ArgTy is already IndTy_A
-build-ctor-body Ind SelfRef K N [IndTy|ArgTys] Args0 ErrTerm AccRev Body :-
-  IndTy = app [global (indt Ind) | _], !,
-  N > 0, N1 is N - 1,
-  json-ty JSONTy,
-  list-ty JSONTy ListJSONTy,
-  coq.locate "bind" (const BindC),
-  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ ErrTerm
-    , fun `ja` JSONTy (ja\
-      fun `jr` ListJSONTy (jr\
-        app [global (const BindC), _, _, _,
-             app [SelfRef, ja],
-             fun `dv` IndTy (dv\
-               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
-    ].
-
-% Non-self arg: use from_JSON (TC-resolved at elaboration time)
-build-ctor-body Ind SelfRef K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
-  N > 0, N1 is N - 1,
-  json-ty JSONTy,
-  list-ty JSONTy ListJSONTy,
-  coq.locate "bind" (const BindC),
-  Body = match Args0 (fun `_` ListJSONTy (_\ {{Result _ string}}))
-    [ ErrTerm
-    , fun `ja` JSONTy (ja\
-      fun `jr` ListJSONTy (jr\
-        app [global (const BindC), _, _, _,
-             {{ @from_JSON _ _ lp:ja }},
-             fun `dv` ArgTy (dv\
-               {build-ctor-body Ind SelfRef K N1 ArgTys jr ErrTerm [dv|AccRev]})]))
-    ].
-
-% ============================================================================
 % string_dec dispatch helpers.
 % ============================================================================
 
-func ctor-name-pairs list constructor -> list (pair string constructor).
+func ctor-name-pairs list json-ctor-view -> list (pair string json-ctor-view).
 ctor-name-pairs [] [].
-ctor-name-pairs [K|Ks] [pr KName K|Rest] :-
-  coq.gref->id (indc K) KName,
-  ctor-name-pairs Ks Rest.
+ctor-name-pairs [CtorView|CtorViews] [pr KName CtorView|Rest] :-
+  KName is {ctor-view-name CtorView},
+  ctor-name-pairs CtorViews Rest.
 
-func terminal-ctor list (pair string constructor) -> option constructor.
+func terminal-ctor list (pair string json-ctor-view) -> option json-ctor-view.
 terminal-ctor [] none.
-terminal-ctor [pr "" K|_] (some K) :- !.
+terminal-ctor [pr "" CtorView|_] (some CtorView) :- !.
 terminal-ctor [_|Rest] R :- terminal-ctor Rest R.
 
-func nonempty-pairs list (pair string constructor) -> list (pair string constructor).
+func nonempty-pairs list (pair string json-ctor-view) -> list (pair string json-ctor-view).
 nonempty-pairs [] [].
 nonempty-pairs [pr "" _|Rest] Out :- !, nonempty-pairs Rest Out.
 nonempty-pairs [P|Rest] [P|Out] :- nonempty-pairs Rest Out.
@@ -598,7 +636,7 @@ pred mem-int i:int, i:list int.
 mem-int X [X|_] :- !.
 mem-int X [_|Xs] :- mem-int X Xs.
 
-func first-char-codes list (pair string constructor), list int -> list int.
+func first-char-codes list (pair string json-ctor-view), list int -> list int.
 first-char-codes [] Seen Seen.
 first-char-codes [pr "" _|Rest] Seen Codes :- !,
   first-char-codes Rest Seen Codes.
@@ -609,7 +647,7 @@ first-char-codes [pr S _|Rest] Seen Codes :-
      (NextSeen = [C|Seen]),
   first-char-codes Rest NextSeen Codes.
 
-func strip-code-pairs int, list (pair string constructor) -> list (pair string constructor).
+func strip-code-pairs int, list (pair string json-ctor-view) -> list (pair string json-ctor-view).
 strip-code-pairs _ [] [].
 strip-code-pairs C [pr S K|Rest] Out :-
   if (S = "")
@@ -621,14 +659,16 @@ strip-code-pairs C [pr S K|Rest] Out :-
           Out = [pr Tail K|RestOut])
          (strip-code-pairs C Rest Out)).
 
-pred enum-constructor-result i:list term, i:term, i:constructor, o:term.
-enum-constructor-result Params ResG K KApp :-
-  make-holes {std.length Params} KHoles,
+pred enum-constructor-result i:term, i:json-ctor-view, o:term.
+enum-constructor-result ResG CtorView KApp :-
+  K = {ctor-view-constructor CtorView},
+  KParNo = {ctor-view-param-count CtorView},
+  make-holes KParNo KHoles,
   KApp = app [ResG, _, _, app [global (indc K) | KHoles]].
 
 pred build-string-trie-dispatch
-  i:list term, i:term, i:list (pair string constructor), i:term, o:term.
-build-string-trie-dispatch Params S Pairs Default Body :-
+  i:term, i:list (pair string json-ctor-view), i:term, o:term.
+build-string-trie-dispatch S Pairs Default Body :-
   coq.locate "Corelib.Init.Datatypes.false" GRfalse,
   coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
   coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAsciiCtor,
@@ -638,28 +678,28 @@ build-string-trie-dispatch Params S Pairs Default Body :-
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   str-ty StrTy,
   build-string-trie-dispatch-loop
-    Params S Pairs Default
+    S Pairs Default
     (global GRfalse) (global GRtrue) (global GRAsciiCtor)
     (global (indt AsciiInd))
     (global (const AsciiDecC)) (global (indc ResC)) (global (indt SumboolIndt))
     StrTy Body.
 
 pred build-string-trie-dispatch-loop
-  i:list term, i:term, i:list (pair string constructor), i:term,
+  i:term, i:list (pair string json-ctor-view), i:term,
   i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-string-trie-dispatch-loop
-    Params S Pairs Default FalseG TrueG AsciiCtorG AsciiTy
+    S Pairs Default FalseG TrueG AsciiCtorG AsciiTy
     AsciiDecG ResG SumboolG StrTy Body :-
   Terminal = {terminal-ctor Pairs},
-  if (Terminal = some K)
-     (enum-constructor-result Params ResG K EmptyBranch)
+  if (Terminal = some CtorView)
+     (enum-constructor-result ResG CtorView EmptyBranch)
      (EmptyBranch = Default),
   Nonempty = {nonempty-pairs Pairs},
   Codes = {first-char-codes Nonempty []},
   @pi-decl `ch` AsciiTy CH\
   @pi-decl `rest` StrTy REST\
     build-char-dispatch
-      Params CH REST Codes Nonempty Default
+      CH REST Codes Nonempty Default
       FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy
       (ConsBranch CH REST),
   Body = match S (fun `_` StrTy (_\ {{Result _ string}}))
@@ -668,22 +708,22 @@ build-string-trie-dispatch-loop
     ].
 
 pred build-char-dispatch
-  i:list term, i:term, i:term, i:list int, i:list (pair string constructor), i:term,
+  i:term, i:term, i:list int, i:list (pair string json-ctor-view), i:term,
   i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-char-dispatch
-    _Params _CH _REST [] _Pairs Default
+    _CH _REST [] _Pairs Default
     _FalseG _TrueG _AsciiCtorG _AsciiTy _AsciiDecG _ResG _SumboolG _StrTy Default :- !.
 build-char-dispatch
-    Params CH REST [Code|Codes] Pairs Default
+    CH REST [Code|Codes] Pairs Default
     FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy Body :-
   int_to_ascii_term FalseG TrueG AsciiCtorG Code CharTerm,
   MatchingPairs = {strip-code-pairs Code Pairs},
   build-string-trie-dispatch-loop
-    Params REST MatchingPairs Default
+    REST MatchingPairs Default
     FalseG TrueG AsciiCtorG AsciiTy
     AsciiDecG ResG SumboolG StrTy MatchBody,
   build-char-dispatch
-    Params CH REST Codes Pairs Default
+    CH REST Codes Pairs Default
     FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy RestBody,
   SumboolApp = app [AsciiDecG, CH, CharTerm],
   EqProp  = app [{{@eq}}, AsciiTy, CH, CharTerm],
@@ -691,33 +731,6 @@ build-char-dispatch
   SumboolTy = app [SumboolG, EqProp, NeqProp],
   Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
     [ fun `_` EqProp  (_\ MatchBody)
-    , fun `_` NeqProp (_\ RestBody)
-    ].
-
-func build-string-dispatch-chain list term, term, list constructor, term -> term.
-build-string-dispatch-chain Params Tag Kns Default Body :-
-  coq.locate "string_dec" (const SumboolFnC),
-  coq.locate "res" (indc ResC),
-  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
-  build-string-dispatch-chain-loop
-    Params Tag Kns Default
-    (global (const SumboolFnC)) (global (indc ResC)) (global (indt SumboolIndt))
-    Body.
-
-func build-string-dispatch-chain-loop list term, term, list constructor, term, term, term, term -> term.
-build-string-dispatch-chain-loop _Params _Tag [] Default _SumboolFnG _ResG _SumboolG Default :- !.
-build-string-dispatch-chain-loop Params Tag [K|Ks] Default SumboolFnG ResG SumboolG Body :-
-  coq.gref->id (indc K) KName,
-  string_to_coq_string_term KName KNameTerm,
-  make-holes {std.length Params} KHoles,
-  KApp = app [ResG, _, _, app [global (indc K) | KHoles]],
-  build-string-dispatch-chain-loop Params Tag Ks Default SumboolFnG ResG SumboolG RestBody,
-  SumboolApp = app [SumboolFnG, Tag, KNameTerm],
-  EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
-  NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
-  SumboolTy = app [SumboolG, EqProp, NeqProp],
-  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
-    [ fun `_` EqProp  (_\ KApp)
     , fun `_` NeqProp (_\ RestBody)
     ].
 
@@ -922,16 +935,18 @@ build-nested-from-json-deser _Ind _SelfRef Ty Result :-
 % value from each pair.  Self-reference args call SelfRef; others call from_JSON.
 % ============================================================================
 
-func build-ctor-body-kvs inductive, term, constructor, int, list term, term, term, list term -> term.
+func build-ctor-body-kvs inductive, term, json-ctor-view, term, term, list term -> term.
 
 % Base case: 0 remaining args → match nil => res K, cons => err too many
-build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
+build-ctor-body-kvs _Ind _Self CtorView Kvs0 ErrTerm AccRev Body :-
+  [] = {ctor-view-arg-views CtorView}, !,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   std.rev AccRev Acc,
-  coq.env.indc K KParNo _ _ _,
+  K = {ctor-view-constructor CtorView},
+  KParNo = {ctor-view-param-count CtorView},
   make-holes KParNo KHoles,
   std.append KHoles Acc KAllArgs,
   coq.mk-app (global (indc K)) KAllArgs KApp,
@@ -942,15 +957,15 @@ build-ctor-body-kvs _Ind _Self K 0 [] Kvs0 ErrTerm AccRev Body :- !,
     ].
 
 % Arg containing Ind (self-reference or nested): use nested deserializer
-build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
-  type-contains-ind Ind ArgTy, !,
-  N > 0, N1 is N - 1,
+build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
+  (Class = arg-self ; Class = arg-nested-supported _), !,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   coq.locate "bind" (const BindC),
   build-nested-from-json-deser Ind Self ArgTy NestedDeser,
+  RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ ErrTerm
     , fun `kv` PairTy (kv\
@@ -960,18 +975,25 @@ build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
                 app [global (const BindC), _, _, _,
                      app [NestedDeser, val],
                      fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
+                       {build-ctor-body-kvs Ind Self RestCtorView kvr ErrTerm [dv|AccRev]})]))
             ]))
     ].
 
+build-ctor-body-kvs _Ind _Self (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-nested-unsupported HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+  !,
+  coq.error
+    ("derive.jsonifiable: unsupported nested recursive occurrence under "
+     ^ HeadName
+     ^ ". Supported recursive containers are list, prod, and option.").
+
 % Non-self arg: decode with from_JSON
-build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
-  N > 0, N1 is N - 1,
+build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   coq.locate "bind" (const BindC),
+  RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
   Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
     [ ErrTerm
     , fun `kv` PairTy (kv\
@@ -981,7 +1003,7 @@ build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
                 app [global (const BindC), _, _, _,
                      {{ @from_JSON _ _ lp:val }},
                      fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Self K N1 ArgTys kvr ErrTerm [dv|AccRev]})]))
+                       {build-ctor-body-kvs Ind Self RestCtorView kvr ErrTerm [dv|AccRev]})]))
             ]))
     ].
 
@@ -990,28 +1012,25 @@ build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
 % Scrutinizes `tag : string` and for matching ctor decodes `kvs`.
 % ============================================================================
 
-func build-obj-dispatch inductive, list term, term, list constructor, term, term, term -> term.
-build-obj-dispatch Ind Params Self Kns Tag Kvs Default Body :-
+func build-obj-dispatch inductive, list term, term, list json-ctor-view, term, term, term -> term.
+build-obj-dispatch Ind Params Self CtorViews Tag Kvs Default Body :-
   coq.locate "string_dec" (const SumboolFnC),
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
   build-obj-dispatch-loop
-    Ind Params Self Kns Tag Kvs Default ErrTerm
+    Ind Params Self CtorViews Tag Kvs Default ErrTerm
     (global (const SumboolFnC)) (global (indt SumboolIndt))
     Body.
 
-func build-obj-dispatch-loop inductive, list term, term, list constructor, term, term, term, term, term, term -> term.
+func build-obj-dispatch-loop inductive, list term, term, list json-ctor-view, term, term, term, term, term, term -> term.
 build-obj-dispatch-loop _Ind _Params _Self [] _Tag _Kvs Default _ErrTerm _SumboolFnG _SumboolG Default :- !.
-build-obj-dispatch-loop Ind Params Self [K|Ks] Tag Kvs Default ErrTerm SumboolFnG SumboolG Body :-
-  coq.gref->id (indc K) KName,
+build-obj-dispatch-loop Ind Params Self [CtorView|CtorViews] Tag Kvs Default ErrTerm SumboolFnG SumboolG Body :-
+  KName is {ctor-view-name CtorView},
   string_to_coq_string_term KName KNameTerm,
-  coq.env.indc K _ParNo _UParNo _Kno FullKTy,
-  apply-to-prods Params FullKTy KTy,
-  count-ctor-args KTy Arity ArgTys,
-  build-ctor-body-kvs Ind Self K Arity ArgTys Kvs ErrTerm [] ArmBody,
-  build-obj-dispatch-loop Ind Params Self Ks Tag Kvs Default ErrTerm SumboolFnG SumboolG RestBody,
+  build-ctor-body-kvs Ind Self CtorView Kvs ErrTerm [] ArmBody,
+  build-obj-dispatch-loop Ind Params Self CtorViews Tag Kvs Default ErrTerm SumboolFnG SumboolG RestBody,
   SumboolApp = app [SumboolFnG, Tag, KNameTerm],
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
   NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
@@ -1028,8 +1047,8 @@ build-obj-dispatch-loop Ind Params Self [K|Ks] Tag Kvs Default ErrTerm SumboolFn
 % ============================================================================
 
 pred build-from-json-body
-  i:inductive, i:list term, i:term, i:term, i:list constructor, i:term, o:term.
-build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
+  i:inductive, i:list term, i:term, i:term, i:list json-ctor-view, i:term, o:term.
+build-from-json-body Ind Params SelfRef JSONTy CtorViews JS Body :-
   str-ty StrTy,
   nat-ty NatTy,
   bool-ty BoolTy,
@@ -1042,24 +1061,20 @@ build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
 
-  % Split constructors by arity — apply Params first so count-ctor-args sees only value args.
-  std.partition Kns
-    (k\ sigma FullKTy KTy A Ts\
-       coq.env.indc k _ _ _ FullKTy,
-       apply-to-prods Params FullKTy KTy,
-       count-ctor-args KTy A Ts, A = 0)
-    EnumKns WithArgsKns,
-
+  % Split constructors by arity using the normalized structural view.
+  std.partition CtorViews
+    (v\ sigma A\ A = {ctor-view-arity v}, A = 0)
+    EnumViews WithArgsViews,
   % --- String branch: dispatch for 0-arg (enum) constructors ---
   @pi-decl `s` StrTy S\
-    (EnumPairs = {ctor-name-pairs EnumKns},
-     build-string-trie-dispatch Params S EnumPairs ErrUnrec (StrDispF S)),
+    (EnumPairs = {ctor-name-pairs EnumViews},
+     build-string-trie-dispatch S EnumPairs ErrUnrec (StrDispF S)),
 
   % --- Object branch: dispatch for N-arg constructors ---
   % Inner object kvs dispatch: ObjDispF tag kvs = match string_dec ...
   @pi-decl `tag` StrTy TAG\
   @pi-decl `kvs` MapStrJsonTy KVS\
-    build-obj-dispatch Ind Params SelfRef WithArgsKns TAG KVS ErrUnrec (ObjDispF TAG KVS),
+    build-obj-dispatch Ind Params SelfRef WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
 
   % Match inner JSON_Object value: must be JSON_Object kvs
   @pi-decl `tag2` StrTy TAG2\
@@ -1099,10 +1114,10 @@ build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
 
   % Full JSON match
   % String branch only active when there are enum constructors
-  if (EnumKns = [])
+  if (EnumViews = [])
      (StrBranch = fun `_` StrTy (_\ ErrNoCons))
      (StrBranch = fun `s` StrTy (s\ StrDispF s)),
-  if (WithArgsKns = [])
+  if (WithArgsViews = [])
      (ObjBranch = fun `_` MapStrJsonTy (_\ ErrNoCons))
      (ObjBranch = fun `m` MapStrJsonTy (mm\ MapMatchF mm)),
   Body = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
@@ -1124,19 +1139,19 @@ pred build-from-json-term i:inductive, i:list term, o:term.
 % R JS = BodyTerm solves R to the Prolog lambda js\ BodyTerm.
 build-from-json-term Ind Params (fun `js` JSONTy (js\ R js)) :-
   not (coq.env.recursive? Ind), !,
-  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  declaration-view Ind Params (inductive-view _ _ CtorViews),
   coq.mk-app (global (indt Ind)) Params _IndTy,
   json-ty JSONTy,
   @pi-decl `js` JSONTy JS\
     % SelfRef unused for non-recursive types; pass dummy term (global indt)
-    build-from-json-body Ind Params (global (indt Ind)) JSONTy Kns JS (R JS).
+    build-from-json-body Ind Params (global (indt Ind)) JSONTy CtorViews JS (R JS).
 
 % Recursive: fix from_json (js : JSON) {struct js} := match js with ...
 % Uses @pi-decl to get pi-constants for HO unification: R Self JS = body.
 build-from-json-term Ind Params
     {{ fix from_json (js : lp:JSONTy) {struct js} : lp:ResultTy := lp:(R from_json js) }} :-
   coq.env.recursive? Ind, !,
-  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort Kns _KTs,
+  declaration-view Ind Params (inductive-view _ _ CtorViews),
   coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   str-ty StrTy,
@@ -1146,7 +1161,7 @@ build-from-json-term Ind Params
     % Pass R Self JS as the output — this puts the output in "pattern form"
     % (applied to pi-constants) so func's mode system can do HO-unification.
     % After build-from-json-body runs, R is unified with fn\ js\ match js ... .
-    std.assert! (build-from-json-body Ind Params Self JSONTy Kns JS (R Self JS))
+    std.assert! (build-from-json-body Ind Params Self JSONTy CtorViews JS (R Self JS))
       "build-from-json-body failed".
 
 % ============================================================================
@@ -1173,29 +1188,16 @@ collect-unique-terms [T|Ts] Seen [T|Rest] :-
 % from_JSON/to_JSON stays abstract (not unfolded by simpl) for the roundtrip proof.
 pred record-field-jsonifiable-types i:inductive, i:list term, o:list term.
 record-field-jsonifiable-types Ind Params DistinctFieldTys :-
-  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort [Kn] _KTs,
-  coq.env.indc Kn _ _ _ FullKTy,
-  apply-to-prods Params FullKTy KTy,
-  count-ctor-args KTy _Arity ArgTys,
-  % Keep only field types that are NOT already type params.
-  std.filter ArgTys (ty\ not (std.mem Params ty)) ConcreteTys,
+  declaration-view Ind Params (record-view _ _ _ (ctor-view _ _ _ _ _ _ Args)),
+  collect-jsonifiable-types-from-args Args ConcreteTys,
   collect-unique-terms ConcreteTys [] DistinctFieldTys.
 
 % Collect distinct concrete arg types across ALL constructors of a general inductive.
 % Excludes type params and types that contain the inductive itself (self-references).
 pred inductive-concrete-jsonifiable-types i:inductive, i:list term, o:list term.
 inductive-concrete-jsonifiable-types Ind Params DistinctTys :-
-  coq.env.indt Ind _ _ _ _ Kns _,
-  std.map Kns (k\ ctys\
-    sigma FullKTy KTy ArgTys\
-    coq.env.indc k _ _ _ FullKTy,
-    apply-to-prods Params FullKTy KTy,
-    count-ctor-args KTy _ ArgTys,
-    std.filter ArgTys (ty\
-      not (std.mem Params ty),
-      not (type-contains-ind Ind ty)) ctys
-  ) AllTysList,
-  std.flatten AllTysList AllTys,
+  declaration-view Ind Params (inductive-view _ _ CtorViews),
+  collect-jsonifiable-types-from-ctors CtorViews AllTys,
   collect-unique-terms AllTys [] DistinctTys.
 
 % Build to_json and from_json skeletons for a general inductive, wrapping with
@@ -1243,10 +1245,11 @@ extract-proj-names [P|Ps] [N|Ns] :- proj-field-name P N, extract-proj-names Ps N
 % Build to_json branch for a record constructor:
 %   match a with mk_R f1 f2 ... => JSON_Object [("f1", to_JSON f1); ...]
 % Uses coq.build-match: K, KTy, Vars (the bound field values), VarTys → body.
-func to-json-branch-record list constant, term, term, list term, list term -> term.
-to-json-branch-record Projs _K _KTy Vars VarTys Body :-
+func to-json-branch-record json-ctor-view, list constant, term, term, list term, list term -> term.
+to-json-branch-record CtorView Projs _K _KTy Vars _VarTys Body :-
+  ArgViews = {ctor-view-arg-views CtorView},
   extract-proj-names Projs FieldNames,
-  build-to-json-args Vars VarTys ArgJsons,
+  build-to-json-args Vars ArgViews ArgJsons,
   build-named-json-pairs FieldNames ArgJsons PairTerms,
   json-ty JSONTy,
   str-ty StrTy,
@@ -1261,12 +1264,13 @@ to-json-branch-record Projs _K _KTy Vars VarTys Body :-
 pred build-to-json-record-term
   i:inductive, i:list term, i:list constant, o:term.
 build-to-json-record-term Ind Params Projs (fun `a` IndTy (a\ R a)) :-
+  declaration-view Ind Params (record-view _ _ _ CtorView),
   coq.mk-app (global (indt Ind)) Params IndTy,
   json-ty JSONTy,
   @pi-decl `a` IndTy A\
     coq.build-match A IndTy
       (_\_\_\ r\ r = JSONTy)
-      (k\ kt\ vs\ vts\ to-json-branch-record Projs k kt vs vts)
+      (k\ kt\ vs\ vts\ to-json-branch-record CtorView Projs k kt vs vts)
       (R A).
 
 % Build from_json for a record type using positional (not name-based) kvs decoding.
@@ -1279,10 +1283,7 @@ build-to-json-record-term Ind Params Projs (fun `a` IndTy (a\ R a)) :-
 pred build-from-json-record-term
   i:inductive, i:list term, i:list constant, o:term.
 build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
-  coq.env.indt Ind _IsInd _ParNo _UParNo _IndSort [Kn] _KTs,
-  coq.env.indc Kn _ _ _ FullKTy,
-  apply-to-prods Params FullKTy KTy,
-  count-ctor-args KTy Arity ArgTys,
+  declaration-view Ind Params (record-view _ _ _ CtorView),
   json-ty JSONTy,
   str-ty StrTy,
   nat-ty NatTy,
@@ -1298,9 +1299,9 @@ build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
   @pi-decl `js` JSONTy JS\
   @pi-decl `kvs` MapStrJsonTy KVS\
     % Positional decode: match kvs elements by position (keys are ignored).
-    % SelfRef is dummy for non-recursive records; self-ref args in ArgTys are
-    % detected by is-self-reference and handled by build-ctor-body-kvs.
-    build-ctor-body-kvs Ind (global (indt Ind)) Kn Arity ArgTys KVS ErrUnrec [] (KvsBody KVS),
+    % SelfRef is dummy for non-recursive records; recursive fields are classified
+    % in the constructor view and handled by build-ctor-body-kvs.
+    build-ctor-body-kvs Ind (global (indt Ind)) CtorView KVS ErrUnrec [] (KvsBody KVS),
   R JS = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
     [ fun `kvs` MapStrJsonTy (kvs\ KvsBody kvs)
     , fun `_` ListJSONTy   (_\ ErrNoCons)
@@ -1329,10 +1330,7 @@ pred build-fun-wrapped-skeletons
 % Record base case: flat JSON_Object with field names, abstract field Jsonifiable instances.
 build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
   std.rev RevTPs Params,
-  coq.env.record? Ind _,
-  coq.env.projections Ind OptProjs,
-  unopt-projections OptProjs Projs,
-  not (Projs = []), !,
+  declaration-view Ind Params (record-view _ _ Projs _), !,
   % coq.say "derive.jsonifiable: record detected, using field-name JSON format",
   record-field-jsonifiable-types Ind Params FieldTys,
   std.assert! (build-record-fun-wrapped Ind Params Projs FieldTys TJSkel FJSkel)
@@ -1365,10 +1363,7 @@ pred build-prod-wrapped-proof-type
 build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :-
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
-  coq.env.record? Ind _,
-  coq.env.projections Ind OptProjs,
-  unopt-projections OptProjs Projs,
-  not (Projs = []), !,
+  declaration-view Ind TPs (record-view _ _ _ _), !,
   record-field-jsonifiable-types Ind TPs FieldTys,
   build-record-proof-type-inner Ind TJC FJC TPs TCPs FieldTys [] ProofTySkel.
 
@@ -1424,10 +1419,7 @@ pred build-fun-wrapped-instance
 build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :-
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
-  coq.env.record? Ind _,
-  coq.env.projections Ind OptProjs,
-  unopt-projections OptProjs Projs,
-  not (Projs = []), !,
+  declaration-view Ind TPs (record-view _ _ _ _), !,
   record-field-jsonifiable-types Ind TPs FieldTys,
   build-record-instance-inner Ind TJC FJC PrfC TPs TCPs FieldTys [] InstSkel.
 
