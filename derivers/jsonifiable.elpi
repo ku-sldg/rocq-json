@@ -50,16 +50,16 @@ string_to_coq_string_term S CoqString :-
 % ============================================================================
 
 func json-ty -> term.
-json-ty T :- coq.locate "RocqJSON.JSON_Type.JSON" (indt GR), T = global (indt GR).
+json-ty (global (indt GR)) :- coq.locate "RocqJSON.JSON_Type.JSON" (indt GR).
 
 func str-ty -> term.
-str-ty T :- coq.locate "Stdlib.Strings.String.string" (indt GR), T = global (indt GR).
+str-ty (global (indt GR)) :- coq.locate "Stdlib.Strings.String.string" (indt GR).
 
 func nat-ty -> term.
-nat-ty T :- coq.locate "Corelib.Init.Datatypes.nat" (indt GR), T = global (indt GR).
+nat-ty (global (indt GR)) :- coq.locate "Corelib.Init.Datatypes.nat" (indt GR).
 
 func bool-ty -> term.
-bool-ty T :- coq.locate "Corelib.Init.Datatypes.bool" (indt GR), T = global (indt GR).
+bool-ty (global (indt GR)) :- coq.locate "Corelib.Init.Datatypes.bool" (indt GR).
 
 func list-ty term -> term.
 list-ty Elem (app [global (indt GR), Elem]) :-
