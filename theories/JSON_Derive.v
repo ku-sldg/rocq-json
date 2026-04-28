@@ -14,11 +14,11 @@ From Stdlib Require Import List.
 Local Open Scope string_scope.
 
 (* Set Typeclasses Debug. *)
-Set Typeclasses Depth 6.
+Set Typeclasses Depth 5.
 
-Ltac destruct_options :=
+Ltac destruct_nesters :=
   repeat match goal with
-  | o : option _ |- _ => destruct o; simpl
+  | p : prod _ _ |- _ => destruct p; cbn
   end.
 
 (* ===== Database ===== *)
@@ -29,81 +29,50 @@ Elpi Db derive.jsonifiable.db lp:{{
 (* NOTE: This is called by "jsonifiable.elpi" to solve the main goal of deriving
    JSON_Derive.Jsonifiable for a given inductive type. *)
 
-(* prove_result_map_eq: prove result_map g (map f l) = res l for arbitrarily
-   nested element types. Uses IH_rec from outer fix (if in scope) and
-   canonical_jsonification for abstract TC args. Handles arbitrary nesting
-   depth by recursive invocation for inner result_map patterns. *)
-Ltac prove_result_map_eq :=
-  match goal with
-  | |- result_map ?g (map ?f ?l) = res ?l =>
-      induction l as [| x l IHl]; simpl;
-      [ try reflexivity
-      | try destruct x as [? ?]; simpl;
-        destruct_options;
-        repeat (first [
-          match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
-          rewrite canonical_jsonification |
-          rewrite IHl
-        ]);
-        simpl;
-        repeat (
-          match goal with
-          | |- context [result_map ?g2 (map ?f2 ?l2)] =>
-              let Hmap := fresh "Hmap" in
-              assert (Hmap : result_map g2 (map f2 l2) = res l2) by
-                prove_result_map_eq;
-              rewrite Hmap; simpl
-          end
-        );
-        try reflexivity ]
-  end.
-
 (* For non-recursive types: no fix needed, just destruct *)
 Ltac derive_jsonifiable_proof_norec :=
   intros;
   match goal with
-  | v : _ |- _ =>
-      revert v; intro v; destruct v
+  | v : _ |- _ => revert v; intro v; destruct v
   end;
-  simpl;
-  destruct_options;
+  cbn;
   repeat (rewrite canonical_jsonification);
-  simpl;
-  try reflexivity.
+  reflexivity.
 
-(* For recursive / nested-recursive types: fix gives universally quantified IH.
-   For the nested case (self-type inside list containers), we assert the
-   result_map lemma and prove it using prove_result_map_eq, which handles
-   arbitrary nesting depth recursively. The key is that nt (from destructuring
-   a cons element inside list_rect) is a structural subterm of the fix arg,
-   so IH_rec nt passes the guard checker. *)
+Set Default Proof Mode "Classic".
+Lemma result_map_map {A B C} (g : B -> Result A C) (f : A -> B) 
+    (l : list A) (Hrec : forall c, g (f c) = res c) 
+    : result_map g (map f l) = res l.
+Proof.
+  induction l as [| l].
+  - reflexivity.
+  - cbn.
+    rewrite Hrec.
+    rewrite IHl.
+    reflexivity.
+Defined.
+
 Ltac derive_jsonifiable_proof :=
   intros;
   match goal with
-  | v : _ |- _ =>
-      (* it is safe to do it this way since we control the context 
-        and know the *last* introduced will always be the one we want *)
-      revert v;
-      fix IH_rec 1;
-      intro v; destruct v
+  | v : _ |- _ => 
+    revert v;
+    fix IH_rec 1;
+    intro v; destruct v
   end;
-  simpl;
-  destruct_options;
-  repeat (first [
-    match goal with | IH : forall _, _ = res _ |- _ => rewrite IH end |
-    rewrite canonical_jsonification
-  ]);
-  simpl;
-  try reflexivity;
-  repeat (
+  repeat (cbn; try reflexivity;
     match goal with
     | |- context [result_map ?g (map ?f ?l)] =>
-        let Hmap := fresh "Hmap" in
-        assert (Hmap : result_map g (map f l) = res l) by prove_result_map_eq;
-        rewrite Hmap; simpl
+      (* This case only really happens for nesting maps,
+        thus the alternate case may need to handle some additional
+        destruction *)
+      erewrite result_map_map; [ | intros; destruct_nesters ]
+    | |- context [ from_JSON (to_JSON ?v) ] =>
+      repeat (erewrite canonical_jsonification)
+    | o : option _ |- _ => destruct o; cbn
+    | |- _ => repeat (erewrite &IH_rec)
     end
-  );
-  try reflexivity.
+  ).
 
 Elpi Command derive.jsonifiable.
 Elpi Accumulate File derive_hook.

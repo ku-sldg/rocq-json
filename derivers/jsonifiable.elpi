@@ -205,18 +205,22 @@ interleave [A|As] [B|Bs] [A, B | Rest] :- interleave As Bs Rest.
 % them into Coq evars and fills them from the local context.
 func make-holes int -> list term.
 make-holes 0 [] :- !.
-make-holes N [_H|Rest] :- N > 0, !, N1 is N - 1, make-holes N1 Rest.
+make-holes N [_H|Rest] :- make-holes { calc (N - 1) } Rest.
 
 % ============================================================================
 % Build a typed Coq list: cons x1 (cons x2 ... nil) at type ElemTy
 % ============================================================================
 
 func build-coq-list term, list term -> term.
-build-coq-list ElemTy [] (app [global NilGR, ElemTy]) :-
-  coq.locate "Corelib.Init.Datatypes.nil" NilGR.
-build-coq-list ElemTy [H|T] (app [global ConsGR, ElemTy, H, Rest]) :-
+build-coq-list ElemTy Elems List :-
+  coq.locate "Corelib.Init.Datatypes.nil" NilGR,
   coq.locate "Corelib.Init.Datatypes.cons" ConsGR,
-  build-coq-list ElemTy T Rest.
+  build-coq-list-loop (global NilGR) (global ConsGR) ElemTy Elems List.
+
+func build-coq-list-loop term, term, term, list term -> term.
+build-coq-list-loop NilG _ConsG ElemTy [] (app [NilG, ElemTy]) :- !.
+build-coq-list-loop NilG ConsG ElemTy [H|T] (app [ConsG, ElemTy, H, Rest]) :-
+  build-coq-list-loop NilG ConsG ElemTy T Rest.
 
 % ============================================================================
 % Build JSON terms for the new schema:
@@ -320,14 +324,18 @@ build-json-string-ctor KName (app [global (indc StrGR), KNameCoqStr]) :-
 
 % Build list of (name, json) pairs: [("n1",j1); ("n2",j2); ...]
 func build-named-json-pairs list string, list term -> list term.
-build-named-json-pairs [] [] [].
-build-named-json-pairs [N|Ns] [J|Js] [Pair|Pairs] :-
+build-named-json-pairs Names Jsons Pairs :-
   str-ty StrTy,
   json-ty JSONTy,
   coq.locate "Corelib.Init.Datatypes.pair" (indc PairGR),
+  build-named-json-pairs-loop StrTy JSONTy (global (indc PairGR)) Names Jsons Pairs.
+
+func build-named-json-pairs-loop term, term, term, list string, list term -> list term.
+build-named-json-pairs-loop _StrTy _JSONTy _PairG [] [] [] :- !.
+build-named-json-pairs-loop StrTy JSONTy PairG [N|Ns] [J|Js] [Pair|Pairs] :-
   string_to_coq_string_term N NStr,
-  Pair = app [global (indc PairGR), StrTy, JSONTy, NStr, J],
-  build-named-json-pairs Ns Js Pairs.
+  Pair = app [PairG, StrTy, JSONTy, NStr, J],
+  build-named-json-pairs-loop StrTy JSONTy PairG Ns Js Pairs.
 
 % Build JSON_Object [("KName", JSON_Object [("n1",j1);...])] for N-arg constructors.
 func build-named-obj-ctor string, list string, list term -> term.
@@ -562,21 +570,152 @@ build-ctor-body Ind SelfRef K N [ArgTy|ArgTys] Args0 ErrTerm AccRev Body :-
 % string_dec dispatch helpers.
 % ============================================================================
 
-func build-string-dispatch-chain list term, term, list constructor, term -> term.
-build-string-dispatch-chain _Params _Tag [] Default Default.
-build-string-dispatch-chain Params Tag [K|Ks] Default Body :-
+func ctor-name-pairs list constructor -> list (pair string constructor).
+ctor-name-pairs [] [].
+ctor-name-pairs [K|Ks] [pr KName K|Rest] :-
   coq.gref->id (indc K) KName,
-  string_to_coq_string_term KName KNameTerm,
+  ctor-name-pairs Ks Rest.
+
+func terminal-ctor list (pair string constructor) -> option constructor.
+terminal-ctor [] none.
+terminal-ctor [pr "" K|_] (some K) :- !.
+terminal-ctor [_|Rest] R :- terminal-ctor Rest R.
+
+func nonempty-pairs list (pair string constructor) -> list (pair string constructor).
+nonempty-pairs [] [].
+nonempty-pairs [pr "" _|Rest] Out :- !, nonempty-pairs Rest Out.
+nonempty-pairs [P|Rest] [P|Out] :- nonempty-pairs Rest Out.
+
+func first-char-code string -> int.
+first-char-code S (rhc (substring S 0 1)).
+
+func tail-string string -> string.
+tail-string S T :-
+  Len is size S,
+  T = substring S 1 {calc (Len - 1)}.
+
+pred mem-int i:int, i:list int.
+mem-int X [X|_] :- !.
+mem-int X [_|Xs] :- mem-int X Xs.
+
+func first-char-codes list (pair string constructor), list int -> list int.
+first-char-codes [] Seen Seen.
+first-char-codes [pr "" _|Rest] Seen Codes :- !,
+  first-char-codes Rest Seen Codes.
+first-char-codes [pr S _|Rest] Seen Codes :-
+  C is {first-char-code S},
+  if (mem-int C Seen)
+     (NextSeen = Seen)
+     (NextSeen = [C|Seen]),
+  first-char-codes Rest NextSeen Codes.
+
+func strip-code-pairs int, list (pair string constructor) -> list (pair string constructor).
+strip-code-pairs _ [] [].
+strip-code-pairs C [pr S K|Rest] Out :-
+  if (S = "")
+     (strip-code-pairs C Rest Out)
+     (SC is {first-char-code S},
+      if (SC = C)
+         (Tail is {tail-string S},
+          strip-code-pairs C Rest RestOut,
+          Out = [pr Tail K|RestOut])
+         (strip-code-pairs C Rest Out)).
+
+pred enum-constructor-result i:list term, i:term, i:constructor, o:term.
+enum-constructor-result Params ResG K KApp :-
+  make-holes {std.length Params} KHoles,
+  KApp = app [ResG, _, _, app [global (indc K) | KHoles]].
+
+pred build-string-trie-dispatch
+  i:list term, i:term, i:list (pair string constructor), i:term, o:term.
+build-string-trie-dispatch Params S Pairs Default Body :-
+  coq.locate "Corelib.Init.Datatypes.false" GRfalse,
+  coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
+  coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAsciiCtor,
+  coq.locate "Stdlib.Strings.Ascii.ascii"   (indt AsciiInd),
+  coq.locate "ascii_dec" (const AsciiDecC),
+  coq.locate "res" (indc ResC),
+  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  str-ty StrTy,
+  build-string-trie-dispatch-loop
+    Params S Pairs Default
+    (global GRfalse) (global GRtrue) (global GRAsciiCtor)
+    (global (indt AsciiInd))
+    (global (const AsciiDecC)) (global (indc ResC)) (global (indt SumboolIndt))
+    StrTy Body.
+
+pred build-string-trie-dispatch-loop
+  i:list term, i:term, i:list (pair string constructor), i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-string-trie-dispatch-loop
+    Params S Pairs Default FalseG TrueG AsciiCtorG AsciiTy
+    AsciiDecG ResG SumboolG StrTy Body :-
+  Terminal = {terminal-ctor Pairs},
+  if (Terminal = some K)
+     (enum-constructor-result Params ResG K EmptyBranch)
+     (EmptyBranch = Default),
+  Nonempty = {nonempty-pairs Pairs},
+  Codes = {first-char-codes Nonempty []},
+  @pi-decl `ch` AsciiTy CH\
+  @pi-decl `rest` StrTy REST\
+    build-char-dispatch
+      Params CH REST Codes Nonempty Default
+      FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy
+      (ConsBranch CH REST),
+  Body = match S (fun `_` StrTy (_\ {{Result _ string}}))
+    [ EmptyBranch
+    , fun `ch` AsciiTy (ch\ fun `rest` StrTy (rest\ ConsBranch ch rest))
+    ].
+
+pred build-char-dispatch
+  i:list term, i:term, i:term, i:list int, i:list (pair string constructor), i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-char-dispatch
+    _Params _CH _REST [] _Pairs Default
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _AsciiDecG _ResG _SumboolG _StrTy Default :- !.
+build-char-dispatch
+    Params CH REST [Code|Codes] Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy Body :-
+  int_to_ascii_term FalseG TrueG AsciiCtorG Code CharTerm,
+  MatchingPairs = {strip-code-pairs Code Pairs},
+  build-string-trie-dispatch-loop
+    Params REST MatchingPairs Default
+    FalseG TrueG AsciiCtorG AsciiTy
+    AsciiDecG ResG SumboolG StrTy MatchBody,
+  build-char-dispatch
+    Params CH REST Codes Pairs Default
+    FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy RestBody,
+  SumboolApp = app [AsciiDecG, CH, CharTerm],
+  EqProp  = app [{{@eq}}, AsciiTy, CH, CharTerm],
+  NeqProp = {{ ~ lp:EqProp }},
+  SumboolTy = app [SumboolG, EqProp, NeqProp],
+  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
+    [ fun `_` EqProp  (_\ MatchBody)
+    , fun `_` NeqProp (_\ RestBody)
+    ].
+
+func build-string-dispatch-chain list term, term, list constructor, term -> term.
+build-string-dispatch-chain Params Tag Kns Default Body :-
   coq.locate "string_dec" (const SumboolFnC),
   coq.locate "res" (indc ResC),
-  make-holes {std.length Params} KHoles,
-  KApp = app [global (indc ResC), _, _, app [global (indc K) | KHoles]],
-  build-string-dispatch-chain Params Tag Ks Default RestBody,
-  SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
   coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  build-string-dispatch-chain-loop
+    Params Tag Kns Default
+    (global (const SumboolFnC)) (global (indc ResC)) (global (indt SumboolIndt))
+    Body.
+
+func build-string-dispatch-chain-loop list term, term, list constructor, term, term, term, term -> term.
+build-string-dispatch-chain-loop _Params _Tag [] Default _SumboolFnG _ResG _SumboolG Default :- !.
+build-string-dispatch-chain-loop Params Tag [K|Ks] Default SumboolFnG ResG SumboolG Body :-
+  coq.gref->id (indc K) KName,
+  string_to_coq_string_term KName KNameTerm,
+  make-holes {std.length Params} KHoles,
+  KApp = app [ResG, _, _, app [global (indc K) | KHoles]],
+  build-string-dispatch-chain-loop Params Tag Ks Default SumboolFnG ResG SumboolG RestBody,
+  SumboolApp = app [SumboolFnG, Tag, KNameTerm],
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
   NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
-  SumboolTy = app [global (indt SumboolIndt), EqProp, NeqProp],
+  SumboolTy = app [SumboolG, EqProp, NeqProp],
   Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
     [ fun `_` EqProp  (_\ KApp)
     , fun `_` NeqProp (_\ RestBody)
@@ -852,24 +991,31 @@ build-ctor-body-kvs Ind Self K N [ArgTy|ArgTys] Kvs0 ErrTerm AccRev Body :-
 % ============================================================================
 
 func build-obj-dispatch inductive, list term, term, list constructor, term, term, term -> term.
-build-obj-dispatch _Ind _Params _Self [] _Tag _Kvs Default Default.
-build-obj-dispatch Ind Params Self [K|Ks] Tag Kvs Default Body :-
+build-obj-dispatch Ind Params Self Kns Tag Kvs Default Body :-
+  coq.locate "string_dec" (const SumboolFnC),
+  coq.locate "err" (indc ErrC),
+  coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
+  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
+  build-obj-dispatch-loop
+    Ind Params Self Kns Tag Kvs Default ErrTerm
+    (global (const SumboolFnC)) (global (indt SumboolIndt))
+    Body.
+
+func build-obj-dispatch-loop inductive, list term, term, list constructor, term, term, term, term, term, term -> term.
+build-obj-dispatch-loop _Ind _Params _Self [] _Tag _Kvs Default _ErrTerm _SumboolFnG _SumboolG Default :- !.
+build-obj-dispatch-loop Ind Params Self [K|Ks] Tag Kvs Default ErrTerm SumboolFnG SumboolG Body :-
   coq.gref->id (indc K) KName,
   string_to_coq_string_term KName KNameTerm,
-  coq.locate "string_dec" (const SumboolFnC),
   coq.env.indc K _ParNo _UParNo _Kno FullKTy,
   apply-to-prods Params FullKTy KTy,
   count-ctor-args KTy Arity ArgTys,
-  coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
-  ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
   build-ctor-body-kvs Ind Self K Arity ArgTys Kvs ErrTerm [] ArmBody,
-  build-obj-dispatch Ind Params Self Ks Tag Kvs Default RestBody,
-  SumboolApp = app [global (const SumboolFnC), Tag, KNameTerm],
-  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  build-obj-dispatch-loop Ind Params Self Ks Tag Kvs Default ErrTerm SumboolFnG SumboolG RestBody,
+  SumboolApp = app [SumboolFnG, Tag, KNameTerm],
   EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
   NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
-  SumboolTy = app [global (indt SumboolIndt), EqProp, NeqProp],
+  SumboolTy = app [SumboolG, EqProp, NeqProp],
   Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
     [ fun `_` EqProp  (_\ ArmBody)
     , fun `_` NeqProp (_\ RestBody)
@@ -881,7 +1027,8 @@ build-obj-dispatch Ind Params Self [K|Ks] Tag Kvs Default Body :-
 %   JSON_Object [(t, JSON_Object kvs)]  → ctors with args
 % ============================================================================
 
-func build-from-json-body inductive, list term, term, term, list constructor, term -> term.
+pred build-from-json-body
+  i:inductive, i:list term, i:term, i:term, i:list constructor, i:term, o:term.
 build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
   str-ty StrTy,
   nat-ty NatTy,
@@ -905,7 +1052,8 @@ build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
 
   % --- String branch: dispatch for 0-arg (enum) constructors ---
   @pi-decl `s` StrTy S\
-    build-string-dispatch-chain Params S EnumKns ErrUnrec (StrDispF S),
+    (EnumPairs = {ctor-name-pairs EnumKns},
+     build-string-trie-dispatch Params S EnumPairs ErrUnrec (StrDispF S)),
 
   % --- Object branch: dispatch for N-arg constructors ---
   % Inner object kvs dispatch: ObjDispF tag kvs = match string_dec ...
@@ -969,7 +1117,7 @@ build-from-json-body Ind Params SelfRef JSONTy Kns JS Body :-
 % build-from-json-term: wrap the body in fun or fix depending on recursion.
 % ============================================================================
 
-func build-from-json-term inductive, list term -> term.
+pred build-from-json-term i:inductive, i:list term, o:term.
 
 % Non-recursive: fun js => match js with ...
 % Uses @pi-decl so build-from-json-body can see the js variable;
