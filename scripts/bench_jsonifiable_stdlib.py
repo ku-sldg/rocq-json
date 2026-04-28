@@ -40,6 +40,10 @@ TIME_RE = re.compile(r"Finished transaction in\s+([0-9.]+)\s+secs")
 class Candidate:
     library: str
     kind: str
+    target_sort: str
+    arity: str
+    has_prop_argument: bool
+    has_indices: bool
     import_module: str
     module: str
     name: str
@@ -55,6 +59,10 @@ class Candidate:
 class ProbeResult:
     library: str
     kind: str
+    target_sort: str
+    arity: str
+    has_prop_argument: bool
+    has_indices: bool
     module: str
     name: str
     logical_name: str
@@ -123,6 +131,90 @@ def source_to_module(root_name: str, root: Path, path: Path) -> str:
     return ".".join([root_name, *rel.parts])
 
 
+def declaration_snippet(lines: list[str], line_index: int) -> str:
+    chunks: list[str] = []
+    for line in lines[line_index:]:
+        chunks.append(line.strip())
+        if "." in line:
+            break
+    return " ".join(chunks)
+
+
+def declaration_header(snippet: str) -> str:
+    return snippet.split(":=", 1)[0].rsplit(".", 1)[0].strip()
+
+
+def final_top_level_colon(header: str) -> int | None:
+    depth = 0
+    last_colon: int | None = None
+    for index, char in enumerate(header):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}" and depth > 0:
+            depth -= 1
+        elif char == ":" and depth == 0:
+            last_colon = index
+    return last_colon
+
+
+def declaration_arity(snippet: str) -> str:
+    header = declaration_header(snippet)
+    colon = final_top_level_colon(header)
+    if colon is None:
+        return "Type"
+    return header[colon + 1 :].strip()
+
+
+def declaration_target_sort(snippet: str) -> str:
+    arity = declaration_arity(snippet)
+    match = re.search(r"\b(Prop|Set|Type(?:@\{[^}]+\})?)\s*$", arity)
+    if not match:
+        return "unknown"
+    sort = match.group(1)
+    if sort.startswith("Type"):
+        return "Type"
+    return sort
+
+
+def declaration_has_prop_argument(snippet: str) -> bool:
+    header = declaration_header(snippet)
+    colon = final_top_level_colon(header)
+    before_final_arity = header if colon is None else header[:colon]
+    return bool(re.search(r"\bProp\b", before_final_arity))
+
+
+def declaration_has_indices(snippet: str) -> bool:
+    arity = declaration_arity(snippet)
+    return not bool(re.fullmatch(r"(Prop|Set|Type(?:@\{[^}]+\})?)", arity))
+
+
+def make_candidate(
+    root_name: str,
+    kind: str,
+    import_module: str,
+    module: str,
+    name: str,
+    source: str,
+    line_no: int,
+    snippet: str,
+) -> Candidate:
+    arity = declaration_arity(snippet)
+    sort = declaration_target_sort(snippet)
+    return Candidate(
+        root_name,
+        kind,
+        sort,
+        arity,
+        declaration_has_prop_argument(snippet),
+        declaration_has_indices(snippet),
+        import_module,
+        module,
+        name,
+        source,
+        line_no,
+    )
+
+
 def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
     raw = path.read_text(encoding="utf-8", errors="ignore")
     text = strip_comments(raw)
@@ -132,8 +224,10 @@ def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
     stack: list[str] = []
     candidates: list[Candidate] = []
     active_inductive_decl = False
+    lines = text.splitlines()
 
-    for line_no, line in enumerate(text.splitlines(), start=1):
+    for line_index, line in enumerate(lines):
+        line_no = line_index + 1
         end_match = END_RE.match(line)
         if end_match and stack:
             ended = end_match.group(1)
@@ -149,12 +243,14 @@ def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
         module = ".".join([base_module, *stack])
         decl_matches = list(DECL_RE.finditer(line))
         for match in decl_matches:
-            candidates.append(Candidate(root_name, match.group(1), import_module, module, match.group(2), source, line_no))
+            snippet = declaration_snippet(lines, line_index)
+            candidates.append(make_candidate(root_name, match.group(1), import_module, module, match.group(2), source, line_no, snippet))
         if decl_matches:
             active_inductive_decl = True
         if active_inductive_decl:
             for match in WITH_RE.finditer(line):
-                candidates.append(Candidate(root_name, "with", import_module, module, match.group(1), source, line_no))
+                snippet = declaration_snippet(lines, line_index)
+                candidates.append(make_candidate(root_name, "with", import_module, module, match.group(1), source, line_no, snippet))
         if active_inductive_decl and "." in line:
             active_inductive_decl = False
 
@@ -232,6 +328,8 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
         return "timeout"
 
     text = output.lower()
+    if candidate.target_sort == "Prop":
+        return "prop-target-skipped"
     if candidate.kind == "CoInductive":
         return "coinductive-not-supported"
     if "cannot be called on a constant" in text:
@@ -284,6 +382,10 @@ def probe_candidate(
                 file_prelude(),
                 f"(* candidate: {candidate.logical_name}",
                 f"   kind: {candidate.kind}",
+                f"   target sort: {candidate.target_sort}",
+                f"   arity: {candidate.arity}",
+                f"   has Prop argument: {candidate.has_prop_argument}",
+                f"   has indices: {candidate.has_indices}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 require_line(candidate),
                 derive_command(candidate),
@@ -307,6 +409,10 @@ def probe_candidate(
         return ProbeResult(
             candidate.library,
             candidate.kind,
+            candidate.target_sort,
+            candidate.arity,
+            candidate.has_prop_argument,
+            candidate.has_indices,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -331,6 +437,10 @@ def probe_candidate(
         return ProbeResult(
             candidate.library,
             candidate.kind,
+            candidate.target_sort,
+            candidate.arity,
+            candidate.has_prop_argument,
+            candidate.has_indices,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -370,12 +480,25 @@ def write_benchmark_file(path: Path, candidates: list[Candidate]) -> None:
         lines.extend(
             [
                 f"(* {index}. {candidate.logical_name}",
+                f"   kind: {candidate.kind}; target sort: {candidate.target_sort}",
+                f"   arity: {candidate.arity}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 derive_command(candidate),
                 "",
             ]
         )
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_candidates_csv(path: Path, rows: Iterable[tuple[Candidate, str]]) -> None:
+    rows = list(rows)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        fieldnames = [*list(asdict(rows[0][0]).keys()), "logical_name", "skip_reason"] if rows else []
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if rows:
+            writer.writeheader()
+            for row, reason in rows:
+                writer.writerow(asdict(row) | {"logical_name": row.logical_name, "skip_reason": reason})
 
 
 def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
@@ -399,6 +522,10 @@ def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
                 f"- status: `{row.status}`",
                 f"- category: `{row.category}`",
                 f"- declaration kind: `{row.kind}`",
+                f"- target sort: `{row.target_sort}`",
+                f"- arity: `{row.arity}`",
+                f"- has Prop argument: `{row.has_prop_argument}`",
+                f"- has indices: `{row.has_indices}`",
                 f"- source: `{row.source}:{row.line}`",
                 f"- probe file: `{row.probe_file}`",
                 f"- full log: `{row.log_file}`",
@@ -421,7 +548,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="limit candidates, useful for smoke tests")
     parser.add_argument("--probe-timeout", type=int, default=45)
     parser.add_argument("--skip-dune-build", action="store_true")
+    parser.add_argument(
+        "--include-prop-targets",
+        action="store_true",
+        help="probe declarations whose final arity sort is Prop; by default they are recorded and skipped",
+    )
+    parser.add_argument(
+        "--include-prop-arguments",
+        action="store_true",
+        help="probe declarations with Prop in explicit parameter types; by default they are recorded and skipped",
+    )
+    parser.add_argument(
+        "--include-indexed-families",
+        action="store_true",
+        help="probe declarations whose final arity still has non-sort arguments, e.g. bool -> Set",
+    )
     return parser.parse_args()
+
+
+def skip_reason(candidate: Candidate, args: argparse.Namespace) -> str | None:
+    if candidate.target_sort == "Prop" and not args.include_prop_targets:
+        return "prop-target"
+    if candidate.has_prop_argument and not args.include_prop_arguments:
+        return "prop-argument"
+    if candidate.has_indices and not args.include_indexed_families:
+        return "indexed-family"
+    return None
 
 
 def main(args: argparse.Namespace) -> int:
@@ -467,13 +619,33 @@ def main(args: argparse.Namespace) -> int:
     )
     print(f"Discovered {len(candidates)} inductive-like declarations.", flush=True)
 
+    skipped: list[tuple[Candidate, str]] = []
+    probe_candidates: list[Candidate] = []
+    for candidate in candidates:
+        reason = skip_reason(candidate, args)
+        if reason:
+            skipped.append((candidate, reason))
+        else:
+            probe_candidates.append(candidate)
+
+    (out_dir / "skipped_candidates.json").write_text(
+        json.dumps([asdict(candidate) | {"logical_name": candidate.logical_name, "skip_reason": reason} for candidate, reason in skipped], indent=2),
+        encoding="utf-8",
+    )
+    write_candidates_csv(out_dir / "skipped_candidates.csv", skipped)
+    if skipped:
+        skip_counts: dict[str, int] = {}
+        for _candidate, reason in skipped:
+            skip_counts[reason] = skip_counts.get(reason, 0) + 1
+        print(f"Skipping {len(skipped)} declarations outside the default data-like fragment: {skip_counts}.", flush=True)
+
     rocq_json_root, derivers_root = detect_build_roots(repo)
     extra_args = rocq_args(repo, rocq_json_root, derivers_root)
 
     results: list[ProbeResult] = []
     successes: list[Candidate] = []
-    for index, candidate in enumerate(candidates, start=1):
-        print(f"[{index}/{len(candidates)}] probing {candidate.logical_name}", flush=True)
+    for index, candidate in enumerate(probe_candidates, start=1):
+        print(f"[{index}/{len(probe_candidates)}] probing {candidate.logical_name}", flush=True)
         result = probe_candidate(candidate, index, args.rocq, repo, out_dir, args.probe_timeout, extra_args)
         results.append(result)
         if result.status == "ok":
@@ -501,7 +673,19 @@ def main(args: argparse.Namespace) -> int:
     with (out_dir / "benchmark_timings.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["index", "library", "logical_name", "source", "line", "rocq_time_seconds"],
+            fieldnames=[
+                "index",
+                "library",
+                "logical_name",
+                "kind",
+                "target_sort",
+                "arity",
+                "has_prop_argument",
+                "has_indices",
+                "source",
+                "line",
+                "rocq_time_seconds",
+            ],
         )
         writer.writeheader()
         for index, (candidate, seconds) in enumerate(timing_rows, start=1):
@@ -510,6 +694,11 @@ def main(args: argparse.Namespace) -> int:
                     "index": index,
                     "library": candidate.library,
                     "logical_name": candidate.logical_name,
+                    "kind": candidate.kind,
+                    "target_sort": candidate.target_sort,
+                    "arity": candidate.arity,
+                    "has_prop_argument": candidate.has_prop_argument,
+                    "has_indices": candidate.has_indices,
                     "source": candidate.source,
                     "line": candidate.line,
                     "rocq_time_seconds": seconds,
@@ -523,11 +712,17 @@ def main(args: argparse.Namespace) -> int:
     for result in results:
         if result.status != "ok":
             categories[result.category] = categories.get(result.category, 0) + 1
+    skip_categories: dict[str, int] = {}
+    for _candidate, reason in skipped:
+        skip_categories[reason] = skip_categories.get(reason, 0) + 1
     summary = {
         "coqlib": str(coqlib),
         "corelib_theories": str(corelib),
         "stdlib_theories": str(stdlib),
         "discovered": len(candidates),
+        "skipped_prop_targets": skip_categories.get("prop-target", 0),
+        "skipped_categories": skip_categories,
+        "probed": len(probe_candidates),
         "probe_successes": ok,
         "probe_failures": fail,
         "probe_timeouts": timeout,
@@ -535,6 +730,7 @@ def main(args: argparse.Namespace) -> int:
         "benchmark_log": str(compile_log),
         "failure_report": str(out_dir / "failures.md"),
         "probe_logs_dir": str(out_dir / "probes"),
+        "skipped_candidates": str(out_dir / "skipped_candidates.csv"),
         "failure_categories": categories,
         "benchmark_compile_status": compile_proc.returncode,
         "benchmark_wall_seconds": wall,
