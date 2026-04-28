@@ -673,15 +673,15 @@ build-string-trie-dispatch S Pairs Default Body :-
   coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
   coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAsciiCtor,
   coq.locate "Stdlib.Strings.Ascii.ascii"   (indt AsciiInd),
-  coq.locate "ascii_dec" (const AsciiDecC),
+  coq.locate "Stdlib.Strings.Ascii.eqb" (const AsciiEqbC),
   coq.locate "res" (indc ResC),
-  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  bool-ty BoolTy,
   str-ty StrTy,
   build-string-trie-dispatch-loop
     S Pairs Default
     (global GRfalse) (global GRtrue) (global GRAsciiCtor)
     (global (indt AsciiInd))
-    (global (const AsciiDecC)) (global (indc ResC)) (global (indt SumboolIndt))
+    (global (const AsciiEqbC)) (global (indc ResC)) BoolTy
     StrTy Body.
 
 pred build-string-trie-dispatch-loop
@@ -689,7 +689,7 @@ pred build-string-trie-dispatch-loop
   i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-string-trie-dispatch-loop
     S Pairs Default FalseG TrueG AsciiCtorG AsciiTy
-    AsciiDecG ResG SumboolG StrTy Body :-
+    AsciiEqbG ResG BoolTy StrTy Body :-
   Terminal = {terminal-ctor Pairs},
   if (Terminal = some CtorView)
      (enum-constructor-result ResG CtorView EmptyBranch)
@@ -700,7 +700,7 @@ build-string-trie-dispatch-loop
   @pi-decl `rest` StrTy REST\
     build-char-dispatch
       CH REST Codes Nonempty Default
-      FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy
+      FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy
       (ConsBranch CH REST),
   Body = match S (fun `_` StrTy (_\ {{Result _ string}}))
     [ EmptyBranch
@@ -712,27 +712,22 @@ pred build-char-dispatch
   i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
 build-char-dispatch
     _CH _REST [] _Pairs Default
-    _FalseG _TrueG _AsciiCtorG _AsciiTy _AsciiDecG _ResG _SumboolG _StrTy Default :- !.
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _AsciiEqbG _ResG _BoolTy _StrTy Default :- !.
 build-char-dispatch
     CH REST [Code|Codes] Pairs Default
-    FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy Body :-
+    FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy Body :-
   int_to_ascii_term FalseG TrueG AsciiCtorG Code CharTerm,
   MatchingPairs = {strip-code-pairs Code Pairs},
   build-string-trie-dispatch-loop
     REST MatchingPairs Default
     FalseG TrueG AsciiCtorG AsciiTy
-    AsciiDecG ResG SumboolG StrTy MatchBody,
+    AsciiEqbG ResG BoolTy StrTy MatchBody,
   build-char-dispatch
     CH REST Codes Pairs Default
-    FalseG TrueG AsciiCtorG AsciiTy AsciiDecG ResG SumboolG StrTy RestBody,
-  SumboolApp = app [AsciiDecG, CH, CharTerm],
-  EqProp  = app [{{@eq}}, AsciiTy, CH, CharTerm],
-  NeqProp = {{ ~ lp:EqProp }},
-  SumboolTy = app [SumboolG, EqProp, NeqProp],
-  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
-    [ fun `_` EqProp  (_\ MatchBody)
-    , fun `_` NeqProp (_\ RestBody)
-    ].
+    FalseG TrueG AsciiCtorG AsciiTy AsciiEqbG ResG BoolTy StrTy RestBody,
+  EqbApp = app [AsciiEqbG, CH, CharTerm],
+  Body = match EqbApp (fun `_` BoolTy (_\ {{Result _ string}}))
+    [ MatchBody, RestBody ].
 
 % ============================================================================
 % build-nested-from-json-deser: build a (JSON -> Result Ty string) deserializer
@@ -1065,7 +1060,7 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
   std.partition CtorViews
     (v\ sigma A\ A = {ctor-view-arity v}, A = 0)
     EnumViews WithArgsViews,
-  % --- String branch: dispatch for 0-arg (enum) constructors ---
+  % --- String branch: dispatch for 0-arg constructors.
   @pi-decl `s` StrTy S\
     (EnumPairs = {ctor-name-pairs EnumViews},
      build-string-trie-dispatch S EnumPairs ErrUnrec (StrDispF S)),
