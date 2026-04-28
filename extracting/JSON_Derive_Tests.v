@@ -254,68 +254,6 @@ Inductive enum_16 :=
 | a00 | a01 | a02 | a03 | a04 | a05 | a06 | a07
 | a08 | a09 | a0A | a0B | a0C | a0D | a0E | a0F.
 Time Elpi derive.jsonifiable enum_16.
-Time Eval compute in from_JSON (to_JSON a0A).
-
-(* We also show off how a trivial to/from_JSON method can be hand-written, but will be *MUCH SLOWER*. This is because our method utilizies trie's and ascii comparison to implement the JSON serialization/deserialization in a fast manner. *)
-Definition enum_16_to_json' (e : enum_16) : JSON :=
-  match e with
-  | a00 => JSON_String "a00"
-  | a01 => JSON_String "a01"
-  | a02 => JSON_String "a02"
-  | a03 => JSON_String "a03"
-  | a04 => JSON_String "a04"
-  | a05 => JSON_String "a05"
-  | a06 => JSON_String "a06"
-  | a07 => JSON_String "a07"
-  | a08 => JSON_String "a08"
-  | a09 => JSON_String "a09"
-  | a0A => JSON_String "a0A"
-  | a0B => JSON_String "a0B"
-  | a0C => JSON_String "a0C"
-  | a0D => JSON_String "a0D"
-  | a0E => JSON_String "a0E"
-  | a0F => JSON_String "a0F"
-  end.
-Definition enum_16_from_json' (j : JSON) : option enum_16 :=
-  match j with
-  | JSON_String "a00" => Some a00
-  | JSON_String "a01" => Some a01
-  | JSON_String "a02" => Some a02
-  | JSON_String "a03" => Some a03
-  | JSON_String "a04" => Some a04
-  | JSON_String "a05" => Some a05
-  | JSON_String "a06" => Some a06
-  | JSON_String "a07" => Some a07
-  | JSON_String "a08" => Some a08
-  | JSON_String "a09" => Some a09
-  | JSON_String "a0A" => Some a0A
-  | JSON_String "a0B" => Some a0B
-  | JSON_String "a0C" => Some a0C
-  | JSON_String "a0D" => Some a0D
-  | JSON_String "a0E" => Some a0E
-  | JSON_String "a0F" => Some a0F
-  | _ => None
-  end.
-Definition enum_16_canonical_jsonification' (e : enum_16)
-    : enum_16_from_json' (enum_16_to_json' e) = Some e :=
-  match e with
-  | a00 => eq_refl
-  | a01 => eq_refl
-  | a02 => eq_refl
-  | a03 => eq_refl
-  | a04 => eq_refl
-  | a05 => eq_refl
-  | a06 => eq_refl
-  | a07 => eq_refl
-  | a08 => eq_refl
-  | a09 => eq_refl
-  | a0A => eq_refl
-  | a0B => eq_refl
-  | a0C => eq_refl
-  | a0D => eq_refl
-  | a0E => eq_refl
-  | a0F => eq_refl
-  end.
 
 Inductive enum_32 :=
 | b00 | b01 | b02 | b03 | b04 | b05 | b06 | b07
@@ -386,525 +324,268 @@ Inductive enum_256 :=
 | eF0 | eF1 | eF2 | eF3 | eF4 | eF5 | eF6 | eF7
 | eF8 | eF9 | eFA | eFB | eFC | eFD | eFE | eFF.
 Time Elpi derive.jsonifiable enum_256.
-Time Eval compute in from_JSON (to_JSON eFA).
 
 Set Default Proof Mode "Classic".
 Definition enum_256_Jsonifiable' : Jsonifiable enum_256.
 Time refine (Build_Jsonifiable _ (fun e => match e with
-  | e00 => JSON_String "e00" 
-  | e01 => JSON_String "e01" 
-  | e02 => JSON_String "e02" 
-  | e03 => JSON_String "e03" 
-  | e04 => JSON_String "e04" 
-  | e05 => JSON_String "e05" 
-  | e06 => JSON_String "e06" 
-  | e07 => JSON_String "e07"
-  | e08 => JSON_String "e08" 
-  | e09 => JSON_String "e09" 
-  | e0A => JSON_String "e0A" 
-  | e0B => JSON_String "e0B" 
-  | e0C => JSON_String "e0C" 
-  | e0D => JSON_String "e0D" 
-  | e0E => JSON_String "e0E" 
-  | e0F => JSON_String "e0F"
-  | e10 => JSON_String "e10" 
-  | e11 => JSON_String "e11" 
-  | e12 => JSON_String "e12" 
-  | e13 => JSON_String "e13" 
-  | e14 => JSON_String "e14" 
-  | e15 => JSON_String "e15" 
-  | e16 => JSON_String "e16" 
-  | e17 => JSON_String "e17"
-  | e18 => JSON_String "e18" 
-  | e19 => JSON_String "e19" 
-  | e1A => JSON_String "e1A" 
-  | e1B => JSON_String "e1B" 
-  | e1C => JSON_String "e1C" 
-  | e1D => JSON_String "e1D" 
-  | e1E => JSON_String "e1E" 
-  | e1F => JSON_String "e1F"
-  | e20 => JSON_String "e20" 
-  | e21 => JSON_String "e21" 
-  | e22 => JSON_String "e22" 
-  | e23 => JSON_String "e23" 
-  | e24 => JSON_String "e24" 
-  | e25 => JSON_String "e25" 
-  | e26 => JSON_String "e26" 
-  | e27 => JSON_String "e27"
-  | e28 => JSON_String "e28" 
-  | e29 => JSON_String "e29" 
-  | e2A => JSON_String "e2A" 
-  | e2B => JSON_String "e2B" 
-  | e2C => JSON_String "e2C" 
-  | e2D => JSON_String "e2D" 
-  | e2E => JSON_String "e2E" 
-  | e2F => JSON_String "e2F"
-  | e30 => JSON_String "e30" 
-  | e31 => JSON_String "e31" 
-  | e32 => JSON_String "e32" 
-  | e33 => JSON_String "e33" 
-  | e34 => JSON_String "e34" 
-  | e35 => JSON_String "e35" 
-  | e36 => JSON_String "e36" 
-  | e37 => JSON_String "e37"
-  | e38 => JSON_String "e38" 
-  | e39 => JSON_String "e39" 
-  | e3A => JSON_String "e3A" 
-  | e3B => JSON_String "e3B" 
-  | e3C => JSON_String "e3C" 
-  | e3D => JSON_String "e3D" 
-  | e3E => JSON_String "e3E" 
-  | e3F => JSON_String "e3F"
-  | e40 => JSON_String "e40" 
-  | e41 => JSON_String "e41" 
-  | e42 => JSON_String "e42" 
-  | e43 => JSON_String "e43" 
-  | e44 => JSON_String "e44" 
-  | e45 => JSON_String "e45" 
-  | e46 => JSON_String "e46" 
-  | e47 => JSON_String "e47"
-  | e48 => JSON_String "e48" 
-  | e49 => JSON_String "e49" 
-  | e4A => JSON_String "e4A" 
-  | e4B => JSON_String "e4B" 
-  | e4C => JSON_String "e4C" 
-  | e4D => JSON_String "e4D" 
-  | e4E => JSON_String "e4E" 
-  | e4F => JSON_String "e4F"
-  | e50 => JSON_String "e50" 
-  | e51 => JSON_String "e51" 
-  | e52 => JSON_String "e52" 
-  | e53 => JSON_String "e53" 
-  | e54 => JSON_String "e54" 
-  | e55 => JSON_String "e55" 
-  | e56 => JSON_String "e56" 
-  | e57 => JSON_String "e57"
-  | e58 => JSON_String "e58" 
-  | e59 => JSON_String "e59" 
-  | e5A => JSON_String "e5A" 
-  | e5B => JSON_String "e5B" 
-  | e5C => JSON_String "e5C" 
-  | e5D => JSON_String "e5D" 
-  | e5E => JSON_String "e5E" 
-  | e5F => JSON_String "e5F"
-  | e60 => JSON_String "e60" 
-  | e61 => JSON_String "e61" 
-  | e62 => JSON_String "e62" 
-  | e63 => JSON_String "e63" 
-  | e64 => JSON_String "e64" 
-  | e65 => JSON_String "e65" 
-  | e66 => JSON_String "e66" 
-  | e67 => JSON_String "e67"
-  | e68 => JSON_String "e68" 
-  | e69 => JSON_String "e69" 
-  | e6A => JSON_String "e6A" 
-  | e6B => JSON_String "e6B" 
-  | e6C => JSON_String "e6C" 
-  | e6D => JSON_String "e6D" 
-  | e6E => JSON_String "e6E" 
-  | e6F => JSON_String "e6F"
-  | e70 => JSON_String "e70" 
-  | e71 => JSON_String "e71" 
-  | e72 => JSON_String "e72" 
-  | e73 => JSON_String "e73" 
-  | e74 => JSON_String "e74" 
-  | e75 => JSON_String "e75" 
-  | e76 => JSON_String "e76" 
-  | e77 => JSON_String "e77"
-  | e78 => JSON_String "e78" 
-  | e79 => JSON_String "e79" 
-  | e7A => JSON_String "e7A" 
-  | e7B => JSON_String "e7B" 
-  | e7C => JSON_String "e7C" 
-  | e7D => JSON_String "e7D" 
-  | e7E => JSON_String "e7E" 
-  | e7F => JSON_String "e7F"
-  | e80 => JSON_String "e80" 
-  | e81 => JSON_String "e81" 
-  | e82 => JSON_String "e82" 
-  | e83 => JSON_String "e83" 
-  | e84 => JSON_String "e84" 
-  | e85 => JSON_String "e85" 
-  | e86 => JSON_String "e86" 
-  | e87 => JSON_String "e87"
-  | e88 => JSON_String "e88" 
-  | e89 => JSON_String "e89" 
-  | e8A => JSON_String "e8A" 
-  | e8B => JSON_String "e8B" 
-  | e8C => JSON_String "e8C" 
-  | e8D => JSON_String "e8D" 
-  | e8E => JSON_String "e8E" 
-  | e8F => JSON_String "e8F"
-  | e90 => JSON_String "e90" 
-  | e91 => JSON_String "e91" 
-  | e92 => JSON_String "e92" 
-  | e93 => JSON_String "e93" 
-  | e94 => JSON_String "e94" 
-  | e95 => JSON_String "e95" 
-  | e96 => JSON_String "e96" 
-  | e97 => JSON_String "e97"
-  | e98 => JSON_String "e98" 
-  | e99 => JSON_String "e99" 
-  | e9A => JSON_String "e9A" 
-  | e9B => JSON_String "e9B" 
-  | e9C => JSON_String "e9C" 
-  | e9D => JSON_String "e9D" 
-  | e9E => JSON_String "e9E" 
-  | e9F => JSON_String "e9F"
-  | eA0 => JSON_String "eA0" 
-  | eA1 => JSON_String "eA1" 
-  | eA2 => JSON_String "eA2" 
-  | eA3 => JSON_String "eA3" 
-  | eA4 => JSON_String "eA4" 
-  | eA5 => JSON_String "eA5" 
-  | eA6 => JSON_String "eA6" 
-  | eA7 => JSON_String "eA7"
-  | eA8 => JSON_String "eA8" 
-  | eA9 => JSON_String "eA9" 
-  | eAA => JSON_String "eAA" 
-  | eAB => JSON_String "eAB" 
-  | eAC => JSON_String "eAC" 
-  | eAD => JSON_String "eAD" 
-  | eAE => JSON_String "eAE" 
-  | eAF => JSON_String "eAF"
-  | eB0 => JSON_String "eB0" 
-  | eB1 => JSON_String "eB1" 
-  | eB2 => JSON_String "eB2" 
-  | eB3 => JSON_String "eB3" 
-  | eB4 => JSON_String "eB4" 
-  | eB5 => JSON_String "eB5" 
-  | eB6 => JSON_String "eB6" 
-  | eB7 => JSON_String "eB7"
-  | eB8 => JSON_String "eB8" 
-  | eB9 => JSON_String "eB9" 
-  | eBA => JSON_String "eBA" 
-  | eBB => JSON_String "eBB" 
-  | eBC => JSON_String "eBC" 
-  | eBD => JSON_String "eBD" 
-  | eBE => JSON_String "eBE" 
-  | eBF => JSON_String "eBF"
-  | eC0 => JSON_String "eC0" 
-  | eC1 => JSON_String "eC1" 
-  | eC2 => JSON_String "eC2" 
-  | eC3 => JSON_String "eC3" 
-  | eC4 => JSON_String "eC4" 
-  | eC5 => JSON_String "eC5" 
-  | eC6 => JSON_String "eC6" 
-  | eC7 => JSON_String "eC7"
-  | eC8 => JSON_String "eC8" 
-  | eC9 => JSON_String "eC9" 
-  | eCA => JSON_String "eCA" 
-  | eCB => JSON_String "eCB" 
-  | eCC => JSON_String "eCC" 
-  | eCD => JSON_String "eCD" 
-  | eCE => JSON_String "eCE" 
-  | eCF => JSON_String "eCF"
-  | eD0 => JSON_String "eD0" 
-  | eD1 => JSON_String "eD1" 
-  | eD2 => JSON_String "eD2" 
-  | eD3 => JSON_String "eD3" 
-  | eD4 => JSON_String "eD4" 
-  | eD5 => JSON_String "eD5" 
-  | eD6 => JSON_String "eD6" 
-  | eD7 => JSON_String "eD7"
-  | eD8 => JSON_String "eD8" 
-  | eD9 => JSON_String "eD9" 
-  | eDA => JSON_String "eDA" 
-  | eDB => JSON_String "eDB" 
-  | eDC => JSON_String "eDC" 
-  | eDD => JSON_String "eDD" 
-  | eDE => JSON_String "eDE" 
-  | eDF => JSON_String "eDF"
-  | eE0 => JSON_String "eE0" 
-  | eE1 => JSON_String "eE1" 
-  | eE2 => JSON_String "eE2" 
-  | eE3 => JSON_String "eE3" 
-  | eE4 => JSON_String "eE4" 
-  | eE5 => JSON_String "eE5" 
-  | eE6 => JSON_String "eE6" 
-  | eE7 => JSON_String "eE7"
-  | eE8 => JSON_String "eE8" 
-  | eE9 => JSON_String "eE9" 
-  | eEA => JSON_String "eEA" 
-  | eEB => JSON_String "eEB" 
-  | eEC => JSON_String "eEC" 
-  | eED => JSON_String "eED" 
-  | eEE => JSON_String "eEE" 
-  | eEF => JSON_String "eEF"
-  | eF0 => JSON_String "eF0" 
-  | eF1 => JSON_String "eF1" 
-  | eF2 => JSON_String "eF2" 
-  | eF3 => JSON_String "eF3" 
-  | eF4 => JSON_String "eF4" 
-  | eF5 => JSON_String "eF5" 
-  | eF6 => JSON_String "eF6" 
-  | eF7 => JSON_String "eF7"
-  | eF8 => JSON_String "eF8" 
-  | eF9 => JSON_String "eF9" 
-  | eFA => JSON_String "eFA" 
-  | eFB => JSON_String "eFB" 
-  | eFC => JSON_String "eFC" 
-  | eFD => JSON_String "eFD" 
-  | eFE => JSON_String "eFE" 
-  | eFF => JSON_String "eFF"
+  | e00 => JSON_String "e00" | e01 => JSON_String "e01" 
+  | e02 => JSON_String "e02" | e03 => JSON_String "e03" 
+  | e04 => JSON_String "e04" | e05 => JSON_String "e05" 
+  | e06 => JSON_String "e06" | e07 => JSON_String "e07"
+  | e08 => JSON_String "e08" | e09 => JSON_String "e09" 
+  | e0A => JSON_String "e0A" | e0B => JSON_String "e0B" 
+  | e0C => JSON_String "e0C" | e0D => JSON_String "e0D" 
+  | e0E => JSON_String "e0E" | e0F => JSON_String "e0F"
+  | e10 => JSON_String "e10" | e11 => JSON_String "e11" 
+  | e12 => JSON_String "e12" | e13 => JSON_String "e13" 
+  | e14 => JSON_String "e14" | e15 => JSON_String "e15" 
+  | e16 => JSON_String "e16" | e17 => JSON_String "e17"
+  | e18 => JSON_String "e18" | e19 => JSON_String "e19" 
+  | e1A => JSON_String "e1A" | e1B => JSON_String "e1B" 
+  | e1C => JSON_String "e1C" | e1D => JSON_String "e1D" 
+  | e1E => JSON_String "e1E" | e1F => JSON_String "e1F"
+  | e20 => JSON_String "e20" | e21 => JSON_String "e21" 
+  | e22 => JSON_String "e22" | e23 => JSON_String "e23" 
+  | e24 => JSON_String "e24" | e25 => JSON_String "e25" 
+  | e26 => JSON_String "e26" | e27 => JSON_String "e27"
+  | e28 => JSON_String "e28" | e29 => JSON_String "e29" 
+  | e2A => JSON_String "e2A" | e2B => JSON_String "e2B" 
+  | e2C => JSON_String "e2C" | e2D => JSON_String "e2D" 
+  | e2E => JSON_String "e2E" | e2F => JSON_String "e2F"
+  | e30 => JSON_String "e30" | e31 => JSON_String "e31" 
+  | e32 => JSON_String "e32" | e33 => JSON_String "e33" 
+  | e34 => JSON_String "e34" | e35 => JSON_String "e35" 
+  | e36 => JSON_String "e36" | e37 => JSON_String "e37"
+  | e38 => JSON_String "e38" | e39 => JSON_String "e39" 
+  | e3A => JSON_String "e3A" | e3B => JSON_String "e3B" 
+  | e3C => JSON_String "e3C" | e3D => JSON_String "e3D" 
+  | e3E => JSON_String "e3E" | e3F => JSON_String "e3F"
+  | e40 => JSON_String "e40" | e41 => JSON_String "e41" 
+  | e42 => JSON_String "e42" | e43 => JSON_String "e43" 
+  | e44 => JSON_String "e44" | e45 => JSON_String "e45" 
+  | e46 => JSON_String "e46" | e47 => JSON_String "e47"
+  | e48 => JSON_String "e48" | e49 => JSON_String "e49" 
+  | e4A => JSON_String "e4A" | e4B => JSON_String "e4B" 
+  | e4C => JSON_String "e4C" | e4D => JSON_String "e4D" 
+  | e4E => JSON_String "e4E" | e4F => JSON_String "e4F"
+  | e50 => JSON_String "e50" | e51 => JSON_String "e51" 
+  | e52 => JSON_String "e52" | e53 => JSON_String "e53" 
+  | e54 => JSON_String "e54" | e55 => JSON_String "e55" 
+  | e56 => JSON_String "e56" | e57 => JSON_String "e57"
+  | e58 => JSON_String "e58" | e59 => JSON_String "e59" 
+  | e5A => JSON_String "e5A" | e5B => JSON_String "e5B" 
+  | e5C => JSON_String "e5C" | e5D => JSON_String "e5D" 
+  | e5E => JSON_String "e5E" | e5F => JSON_String "e5F"
+  | e60 => JSON_String "e60" | e61 => JSON_String "e61" 
+  | e62 => JSON_String "e62" | e63 => JSON_String "e63" 
+  | e64 => JSON_String "e64" | e65 => JSON_String "e65" 
+  | e66 => JSON_String "e66" | e67 => JSON_String "e67"
+  | e68 => JSON_String "e68" | e69 => JSON_String "e69" 
+  | e6A => JSON_String "e6A" | e6B => JSON_String "e6B" 
+  | e6C => JSON_String "e6C" | e6D => JSON_String "e6D" 
+  | e6E => JSON_String "e6E" | e6F => JSON_String "e6F"
+  | e70 => JSON_String "e70" | e71 => JSON_String "e71" 
+  | e72 => JSON_String "e72" | e73 => JSON_String "e73" 
+  | e74 => JSON_String "e74" | e75 => JSON_String "e75" 
+  | e76 => JSON_String "e76" | e77 => JSON_String "e77"
+  | e78 => JSON_String "e78" | e79 => JSON_String "e79" 
+  | e7A => JSON_String "e7A" | e7B => JSON_String "e7B" 
+  | e7C => JSON_String "e7C" | e7D => JSON_String "e7D" 
+  | e7E => JSON_String "e7E" | e7F => JSON_String "e7F"
+  | e80 => JSON_String "e80" | e81 => JSON_String "e81" 
+  | e82 => JSON_String "e82" | e83 => JSON_String "e83" 
+  | e84 => JSON_String "e84" | e85 => JSON_String "e85" 
+  | e86 => JSON_String "e86" | e87 => JSON_String "e87"
+  | e88 => JSON_String "e88" | e89 => JSON_String "e89" 
+  | e8A => JSON_String "e8A" | e8B => JSON_String "e8B" 
+  | e8C => JSON_String "e8C" | e8D => JSON_String "e8D" 
+  | e8E => JSON_String "e8E" | e8F => JSON_String "e8F"
+  | e90 => JSON_String "e90" | e91 => JSON_String "e91" 
+  | e92 => JSON_String "e92" | e93 => JSON_String "e93" 
+  | e94 => JSON_String "e94" | e95 => JSON_String "e95" 
+  | e96 => JSON_String "e96" | e97 => JSON_String "e97"
+  | e98 => JSON_String "e98" | e99 => JSON_String "e99" 
+  | e9A => JSON_String "e9A" | e9B => JSON_String "e9B" 
+  | e9C => JSON_String "e9C" | e9D => JSON_String "e9D" 
+  | e9E => JSON_String "e9E" | e9F => JSON_String "e9F"
+  | eA0 => JSON_String "eA0" | eA1 => JSON_String "eA1" 
+  | eA2 => JSON_String "eA2" | eA3 => JSON_String "eA3" 
+  | eA4 => JSON_String "eA4" | eA5 => JSON_String "eA5" 
+  | eA6 => JSON_String "eA6" | eA7 => JSON_String "eA7"
+  | eA8 => JSON_String "eA8" | eA9 => JSON_String "eA9" 
+  | eAA => JSON_String "eAA" | eAB => JSON_String "eAB" 
+  | eAC => JSON_String "eAC" | eAD => JSON_String "eAD" 
+  | eAE => JSON_String "eAE" | eAF => JSON_String "eAF"
+  | eB0 => JSON_String "eB0" | eB1 => JSON_String "eB1" 
+  | eB2 => JSON_String "eB2" | eB3 => JSON_String "eB3" 
+  | eB4 => JSON_String "eB4" | eB5 => JSON_String "eB5" 
+  | eB6 => JSON_String "eB6" | eB7 => JSON_String "eB7"
+  | eB8 => JSON_String "eB8" | eB9 => JSON_String "eB9" 
+  | eBA => JSON_String "eBA" | eBB => JSON_String "eBB" 
+  | eBC => JSON_String "eBC" | eBD => JSON_String "eBD" 
+  | eBE => JSON_String "eBE" | eBF => JSON_String "eBF"
+  | eC0 => JSON_String "eC0" | eC1 => JSON_String "eC1" 
+  | eC2 => JSON_String "eC2" | eC3 => JSON_String "eC3" 
+  | eC4 => JSON_String "eC4" | eC5 => JSON_String "eC5" 
+  | eC6 => JSON_String "eC6" | eC7 => JSON_String "eC7"
+  | eC8 => JSON_String "eC8" | eC9 => JSON_String "eC9" 
+  | eCA => JSON_String "eCA" | eCB => JSON_String "eCB" 
+  | eCC => JSON_String "eCC" | eCD => JSON_String "eCD" 
+  | eCE => JSON_String "eCE" | eCF => JSON_String "eCF"
+  | eD0 => JSON_String "eD0" | eD1 => JSON_String "eD1" 
+  | eD2 => JSON_String "eD2" | eD3 => JSON_String "eD3" 
+  | eD4 => JSON_String "eD4" | eD5 => JSON_String "eD5" 
+  | eD6 => JSON_String "eD6" | eD7 => JSON_String "eD7"
+  | eD8 => JSON_String "eD8" | eD9 => JSON_String "eD9" 
+  | eDA => JSON_String "eDA" | eDB => JSON_String "eDB" 
+  | eDC => JSON_String "eDC" | eDD => JSON_String "eDD" 
+  | eDE => JSON_String "eDE" | eDF => JSON_String "eDF"
+  | eE0 => JSON_String "eE0" | eE1 => JSON_String "eE1" 
+  | eE2 => JSON_String "eE2" | eE3 => JSON_String "eE3" 
+  | eE4 => JSON_String "eE4" | eE5 => JSON_String "eE5" 
+  | eE6 => JSON_String "eE6" | eE7 => JSON_String "eE7"
+  | eE8 => JSON_String "eE8" | eE9 => JSON_String "eE9" 
+  | eEA => JSON_String "eEA" | eEB => JSON_String "eEB" 
+  | eEC => JSON_String "eEC" | eED => JSON_String "eED" 
+  | eEE => JSON_String "eEE" | eEF => JSON_String "eEF"
+  | eF0 => JSON_String "eF0" | eF1 => JSON_String "eF1" 
+  | eF2 => JSON_String "eF2" | eF3 => JSON_String "eF3" 
+  | eF4 => JSON_String "eF4" | eF5 => JSON_String "eF5" 
+  | eF6 => JSON_String "eF6" | eF7 => JSON_String "eF7"
+  | eF8 => JSON_String "eF8" | eF9 => JSON_String "eF9" 
+  | eFA => JSON_String "eFA" | eFB => JSON_String "eFB" 
+  | eFC => JSON_String "eFC" | eFD => JSON_String "eFD" 
+  | eFE => JSON_String "eFE" | eFF => JSON_String "eFF"
   end) (fun e => 
     match e with
-  | JSON_String "e00"  => res e00
-  | JSON_String "e01"  => res e01
-  | JSON_String "e02"  => res e02
-  | JSON_String "e03"  => res e03
-  | JSON_String "e04"  => res e04
-  | JSON_String "e05"  => res e05
-  | JSON_String "e06"  => res e06
-  | JSON_String "e07" => res e07
-  | JSON_String "e08"  => res e08
-  | JSON_String "e09"  => res e09
-  | JSON_String "e0A"  => res e0A
-  | JSON_String "e0B"  => res e0B
-  | JSON_String "e0C"  => res e0C
-  | JSON_String "e0D"  => res e0D
-  | JSON_String "e0E"  => res e0E
-  | JSON_String "e0F" => res e0F
-  | JSON_String "e10"  => res e10
-  | JSON_String "e11"  => res e11
-  | JSON_String "e12"  => res e12
-  | JSON_String "e13"  => res e13
-  | JSON_String "e14"  => res e14
-  | JSON_String "e15"  => res e15
-  | JSON_String "e16"  => res e16
-  | JSON_String "e17" => res e17
-  | JSON_String "e18"  => res e18
-  | JSON_String "e19"  => res e19
-  | JSON_String "e1A"  => res e1A
-  | JSON_String "e1B"  => res e1B
-  | JSON_String "e1C"  => res e1C
-  | JSON_String "e1D"  => res e1D
-  | JSON_String "e1E"  => res e1E
-  | JSON_String "e1F" => res e1F
-  | JSON_String "e20"  => res e20
-  | JSON_String "e21"  => res e21
-  | JSON_String "e22"  => res e22
-  | JSON_String "e23"  => res e23
-  | JSON_String "e24"  => res e24
-  | JSON_String "e25"  => res e25
-  | JSON_String "e26"  => res e26
-  | JSON_String "e27" => res e27
-  | JSON_String "e28"  => res e28
-  | JSON_String "e29"  => res e29
-  | JSON_String "e2A"  => res e2A
-  | JSON_String "e2B"  => res e2B
-  | JSON_String "e2C"  => res e2C
-  | JSON_String "e2D"  => res e2D
-  | JSON_String "e2E"  => res e2E
-  | JSON_String "e2F" => res e2F
-  | JSON_String "e30"  => res e30
-  | JSON_String "e31"  => res e31
-  | JSON_String "e32"  => res e32
-  | JSON_String "e33"  => res e33
-  | JSON_String "e34"  => res e34
-  | JSON_String "e35"  => res e35
-  | JSON_String "e36"  => res e36
-  | JSON_String "e37" => res e37
-  | JSON_String "e38"  => res e38
-  | JSON_String "e39"  => res e39
-  | JSON_String "e3A"  => res e3A
-  | JSON_String "e3B"  => res e3B
-  | JSON_String "e3C"  => res e3C
-  | JSON_String "e3D"  => res e3D
-  | JSON_String "e3E"  => res e3E
-  | JSON_String "e3F" => res e3F
-  | JSON_String "e40"  => res e40
-  | JSON_String "e41"  => res e41
-  | JSON_String "e42"  => res e42
-  | JSON_String "e43"  => res e43
-  | JSON_String "e44"  => res e44
-  | JSON_String "e45"  => res e45
-  | JSON_String "e46"  => res e46
-  | JSON_String "e47" => res e47
-  | JSON_String "e48"  => res e48
-  | JSON_String "e49"  => res e49
-  | JSON_String "e4A"  => res e4A
-  | JSON_String "e4B"  => res e4B
-  | JSON_String "e4C"  => res e4C
-  | JSON_String "e4D"  => res e4D
-  | JSON_String "e4E"  => res e4E
-  | JSON_String "e4F" => res e4F
-  | JSON_String "e50"  => res e50
-  | JSON_String "e51"  => res e51
-  | JSON_String "e52"  => res e52
-  | JSON_String "e53"  => res e53
-  | JSON_String "e54"  => res e54
-  | JSON_String "e55"  => res e55
-  | JSON_String "e56"  => res e56
-  | JSON_String "e57" => res e57
-  | JSON_String "e58"  => res e58
-  | JSON_String "e59"  => res e59
-  | JSON_String "e5A"  => res e5A
-  | JSON_String "e5B"  => res e5B
-  | JSON_String "e5C"  => res e5C
-  | JSON_String "e5D"  => res e5D
-  | JSON_String "e5E"  => res e5E
-  | JSON_String "e5F" => res e5F
-  | JSON_String "e60"  => res e60
-  | JSON_String "e61"  => res e61
-  | JSON_String "e62"  => res e62
-  | JSON_String "e63"  => res e63
-  | JSON_String "e64"  => res e64
-  | JSON_String "e65"  => res e65
-  | JSON_String "e66"  => res e66
-  | JSON_String "e67" => res e67
-  | JSON_String "e68"  => res e68
-  | JSON_String "e69"  => res e69
-  | JSON_String "e6A"  => res e6A
-  | JSON_String "e6B"  => res e6B
-  | JSON_String "e6C"  => res e6C
-  | JSON_String "e6D"  => res e6D
-  | JSON_String "e6E"  => res e6E
-  | JSON_String "e6F" => res e6F
-  | JSON_String "e70"  => res e70
-  | JSON_String "e71"  => res e71
-  | JSON_String "e72"  => res e72
-  | JSON_String "e73"  => res e73
-  | JSON_String "e74"  => res e74
-  | JSON_String "e75"  => res e75
-  | JSON_String "e76"  => res e76
-  | JSON_String "e77" => res e77
-  | JSON_String "e78"  => res e78
-  | JSON_String "e79"  => res e79
-  | JSON_String "e7A"  => res e7A
-  | JSON_String "e7B"  => res e7B
-  | JSON_String "e7C"  => res e7C
-  | JSON_String "e7D"  => res e7D
-  | JSON_String "e7E"  => res e7E
-  | JSON_String "e7F" => res e7F
-  | JSON_String "e80"  => res e80
-  | JSON_String "e81"  => res e81
-  | JSON_String "e82"  => res e82
-  | JSON_String "e83"  => res e83
-  | JSON_String "e84"  => res e84
-  | JSON_String "e85"  => res e85
-  | JSON_String "e86"  => res e86
-  | JSON_String "e87" => res e87
-  | JSON_String "e88"  => res e88
-  | JSON_String "e89"  => res e89
-  | JSON_String "e8A"  => res e8A
-  | JSON_String "e8B"  => res e8B
-  | JSON_String "e8C"  => res e8C
-  | JSON_String "e8D"  => res e8D
-  | JSON_String "e8E"  => res e8E
-  | JSON_String "e8F" => res e8F
-  | JSON_String "e90"  => res e90
-  | JSON_String "e91"  => res e91
-  | JSON_String "e92"  => res e92
-  | JSON_String "e93"  => res e93
-  | JSON_String "e94"  => res e94
-  | JSON_String "e95"  => res e95
-  | JSON_String "e96"  => res e96
-  | JSON_String "e97" => res e97
-  | JSON_String "e98"  => res e98
-  | JSON_String "e99"  => res e99
-  | JSON_String "e9A"  => res e9A
-  | JSON_String "e9B"  => res e9B
-  | JSON_String "e9C"  => res e9C
-  | JSON_String "e9D"  => res e9D
-  | JSON_String "e9E"  => res e9E
-  | JSON_String "e9F" => res e9F
-  | JSON_String "eA0"  => res eA0
-  | JSON_String "eA1"  => res eA1
-  | JSON_String "eA2"  => res eA2
-  | JSON_String "eA3"  => res eA3
-  | JSON_String "eA4"  => res eA4
-  | JSON_String "eA5"  => res eA5
-  | JSON_String "eA6"  => res eA6
-  | JSON_String "eA7" => res eA7
-  | JSON_String "eA8"  => res eA8
-  | JSON_String "eA9"  => res eA9
-  | JSON_String "eAA"  => res eAA
-  | JSON_String "eAB"  => res eAB
-  | JSON_String "eAC"  => res eAC
-  | JSON_String "eAD"  => res eAD
-  | JSON_String "eAE"  => res eAE
-  | JSON_String "eAF" => res eAF
-  | JSON_String "eB0"  => res eB0
-  | JSON_String "eB1"  => res eB1
-  | JSON_String "eB2"  => res eB2
-  | JSON_String "eB3"  => res eB3
-  | JSON_String "eB4"  => res eB4
-  | JSON_String "eB5"  => res eB5
-  | JSON_String "eB6"  => res eB6
-  | JSON_String "eB7" => res eB7
-  | JSON_String "eB8"  => res eB8
-  | JSON_String "eB9"  => res eB9
-  | JSON_String "eBA"  => res eBA
-  | JSON_String "eBB"  => res eBB
-  | JSON_String "eBC"  => res eBC
-  | JSON_String "eBD"  => res eBD
-  | JSON_String "eBE"  => res eBE
-  | JSON_String "eBF" => res eBF
-  | JSON_String "eC0"  => res eC0
-  | JSON_String "eC1"  => res eC1
-  | JSON_String "eC2"  => res eC2
-  | JSON_String "eC3"  => res eC3
-  | JSON_String "eC4"  => res eC4
-  | JSON_String "eC5"  => res eC5
-  | JSON_String "eC6"  => res eC6
-  | JSON_String "eC7" => res eC7
-  | JSON_String "eC8"  => res eC8
-  | JSON_String "eC9"  => res eC9
-  | JSON_String "eCA"  => res eCA
-  | JSON_String "eCB"  => res eCB
-  | JSON_String "eCC"  => res eCC
-  | JSON_String "eCD"  => res eCD
-  | JSON_String "eCE"  => res eCE
-  | JSON_String "eCF" => res eCF
-  | JSON_String "eD0"  => res eD0
-  | JSON_String "eD1"  => res eD1
-  | JSON_String "eD2"  => res eD2
-  | JSON_String "eD3"  => res eD3
-  | JSON_String "eD4"  => res eD4
-  | JSON_String "eD5"  => res eD5
-  | JSON_String "eD6"  => res eD6
-  | JSON_String "eD7" => res eD7
-  | JSON_String "eD8"  => res eD8
-  | JSON_String "eD9"  => res eD9
-  | JSON_String "eDA"  => res eDA
-  | JSON_String "eDB"  => res eDB
-  | JSON_String "eDC"  => res eDC
-  | JSON_String "eDD"  => res eDD
-  | JSON_String "eDE"  => res eDE
-  | JSON_String "eDF" => res eDF
-  | JSON_String "eE0"  => res eE0
-  | JSON_String "eE1"  => res eE1
-  | JSON_String "eE2"  => res eE2
-  | JSON_String "eE3"  => res eE3
-  | JSON_String "eE4"  => res eE4
-  | JSON_String "eE5"  => res eE5
-  | JSON_String "eE6"  => res eE6
-  | JSON_String "eE7" => res eE7
-  | JSON_String "eE8"  => res eE8
-  | JSON_String "eE9"  => res eE9
-  | JSON_String "eEA"  => res eEA
-  | JSON_String "eEB"  => res eEB
-  | JSON_String "eEC"  => res eEC
-  | JSON_String "eED"  => res eED
-  | JSON_String "eEE"  => res eEE
-  | JSON_String "eEF" => res eEF
-  | JSON_String "eF0"  => res eF0
-  | JSON_String "eF1"  => res eF1
-  | JSON_String "eF2"  => res eF2
-  | JSON_String "eF3"  => res eF3
-  | JSON_String "eF4"  => res eF4
-  | JSON_String "eF5"  => res eF5
-  | JSON_String "eF6"  => res eF6
-  | JSON_String "eF7" => res eF7
-  | JSON_String "eF8"  => res eF8
-  | JSON_String "eF9"  => res eF9
-  | JSON_String "eFA"  => res eFA
-  | JSON_String "eFB"  => res eFB
-  | JSON_String "eFC"  => res eFC
-  | JSON_String "eFD"  => res eFD
-  | JSON_String "eFE"  => res eFE
-  | JSON_String "eFF" => res eFF
+  | JSON_String "e00"  => res e00 | JSON_String "e01"  => res e01
+  | JSON_String "e02"  => res e02 | JSON_String "e03"  => res e03
+  | JSON_String "e04"  => res e04 | JSON_String "e05"  => res e05
+  | JSON_String "e06"  => res e06 | JSON_String "e07" => res e07
+  | JSON_String "e08"  => res e08 | JSON_String "e09"  => res e09
+  | JSON_String "e0A"  => res e0A | JSON_String "e0B"  => res e0B
+  | JSON_String "e0C"  => res e0C | JSON_String "e0D"  => res e0D
+  | JSON_String "e0E"  => res e0E | JSON_String "e0F" => res e0F
+  | JSON_String "e10"  => res e10 | JSON_String "e11"  => res e11
+  | JSON_String "e12"  => res e12 | JSON_String "e13"  => res e13
+  | JSON_String "e14"  => res e14 | JSON_String "e15"  => res e15
+  | JSON_String "e16"  => res e16 | JSON_String "e17" => res e17
+  | JSON_String "e18"  => res e18 | JSON_String "e19"  => res e19
+  | JSON_String "e1A"  => res e1A | JSON_String "e1B"  => res e1B
+  | JSON_String "e1C"  => res e1C | JSON_String "e1D"  => res e1D
+  | JSON_String "e1E"  => res e1E | JSON_String "e1F" => res e1F
+  | JSON_String "e20"  => res e20 | JSON_String "e21"  => res e21
+  | JSON_String "e22"  => res e22 | JSON_String "e23"  => res e23
+  | JSON_String "e24"  => res e24 | JSON_String "e25"  => res e25
+  | JSON_String "e26"  => res e26 | JSON_String "e27" => res e27
+  | JSON_String "e28"  => res e28 | JSON_String "e29"  => res e29
+  | JSON_String "e2A"  => res e2A | JSON_String "e2B"  => res e2B
+  | JSON_String "e2C"  => res e2C | JSON_String "e2D"  => res e2D
+  | JSON_String "e2E"  => res e2E | JSON_String "e2F" => res e2F
+  | JSON_String "e30"  => res e30 | JSON_String "e31"  => res e31
+  | JSON_String "e32"  => res e32 | JSON_String "e33"  => res e33
+  | JSON_String "e34"  => res e34 | JSON_String "e35"  => res e35
+  | JSON_String "e36"  => res e36 | JSON_String "e37" => res e37
+  | JSON_String "e38"  => res e38 | JSON_String "e39"  => res e39
+  | JSON_String "e3A"  => res e3A | JSON_String "e3B"  => res e3B
+  | JSON_String "e3C"  => res e3C | JSON_String "e3D"  => res e3D
+  | JSON_String "e3E"  => res e3E | JSON_String "e3F" => res e3F
+  | JSON_String "e40"  => res e40 | JSON_String "e41"  => res e41
+  | JSON_String "e42"  => res e42 | JSON_String "e43"  => res e43
+  | JSON_String "e44"  => res e44 | JSON_String "e45"  => res e45
+  | JSON_String "e46"  => res e46 | JSON_String "e47" => res e47
+  | JSON_String "e48"  => res e48 | JSON_String "e49"  => res e49
+  | JSON_String "e4A"  => res e4A | JSON_String "e4B"  => res e4B
+  | JSON_String "e4C"  => res e4C | JSON_String "e4D"  => res e4D
+  | JSON_String "e4E"  => res e4E | JSON_String "e4F" => res e4F
+  | JSON_String "e50"  => res e50 | JSON_String "e51"  => res e51
+  | JSON_String "e52"  => res e52 | JSON_String "e53"  => res e53
+  | JSON_String "e54"  => res e54 | JSON_String "e55"  => res e55
+  | JSON_String "e56"  => res e56 | JSON_String "e57" => res e57
+  | JSON_String "e58"  => res e58 | JSON_String "e59"  => res e59
+  | JSON_String "e5A"  => res e5A | JSON_String "e5B"  => res e5B
+  | JSON_String "e5C"  => res e5C | JSON_String "e5D"  => res e5D
+  | JSON_String "e5E"  => res e5E | JSON_String "e5F" => res e5F
+  | JSON_String "e60"  => res e60 | JSON_String "e61"  => res e61
+  | JSON_String "e62"  => res e62 | JSON_String "e63"  => res e63
+  | JSON_String "e64"  => res e64 | JSON_String "e65"  => res e65
+  | JSON_String "e66"  => res e66 | JSON_String "e67" => res e67
+  | JSON_String "e68"  => res e68 | JSON_String "e69"  => res e69
+  | JSON_String "e6A"  => res e6A | JSON_String "e6B"  => res e6B
+  | JSON_String "e6C"  => res e6C | JSON_String "e6D"  => res e6D
+  | JSON_String "e6E"  => res e6E | JSON_String "e6F" => res e6F
+  | JSON_String "e70"  => res e70 | JSON_String "e71"  => res e71
+  | JSON_String "e72"  => res e72 | JSON_String "e73"  => res e73
+  | JSON_String "e74"  => res e74 | JSON_String "e75"  => res e75
+  | JSON_String "e76"  => res e76 | JSON_String "e77" => res e77
+  | JSON_String "e78"  => res e78 | JSON_String "e79"  => res e79
+  | JSON_String "e7A"  => res e7A | JSON_String "e7B"  => res e7B
+  | JSON_String "e7C"  => res e7C | JSON_String "e7D"  => res e7D
+  | JSON_String "e7E"  => res e7E | JSON_String "e7F" => res e7F
+  | JSON_String "e80"  => res e80 | JSON_String "e81"  => res e81
+  | JSON_String "e82"  => res e82 | JSON_String "e83"  => res e83
+  | JSON_String "e84"  => res e84 | JSON_String "e85"  => res e85
+  | JSON_String "e86"  => res e86 | JSON_String "e87" => res e87
+  | JSON_String "e88"  => res e88 | JSON_String "e89"  => res e89
+  | JSON_String "e8A"  => res e8A | JSON_String "e8B"  => res e8B
+  | JSON_String "e8C"  => res e8C | JSON_String "e8D"  => res e8D
+  | JSON_String "e8E"  => res e8E | JSON_String "e8F" => res e8F
+  | JSON_String "e90"  => res e90 | JSON_String "e91"  => res e91
+  | JSON_String "e92"  => res e92 | JSON_String "e93"  => res e93
+  | JSON_String "e94"  => res e94 | JSON_String "e95"  => res e95
+  | JSON_String "e96"  => res e96 | JSON_String "e97" => res e97
+  | JSON_String "e98"  => res e98 | JSON_String "e99"  => res e99
+  | JSON_String "e9A"  => res e9A | JSON_String "e9B"  => res e9B
+  | JSON_String "e9C"  => res e9C | JSON_String "e9D"  => res e9D
+  | JSON_String "e9E"  => res e9E | JSON_String "e9F" => res e9F
+  | JSON_String "eA0"  => res eA0 | JSON_String "eA1"  => res eA1
+  | JSON_String "eA2"  => res eA2 | JSON_String "eA3"  => res eA3
+  | JSON_String "eA4"  => res eA4 | JSON_String "eA5"  => res eA5
+  | JSON_String "eA6"  => res eA6 | JSON_String "eA7" => res eA7
+  | JSON_String "eA8"  => res eA8 | JSON_String "eA9"  => res eA9
+  | JSON_String "eAA"  => res eAA | JSON_String "eAB"  => res eAB
+  | JSON_String "eAC"  => res eAC | JSON_String "eAD"  => res eAD
+  | JSON_String "eAE"  => res eAE | JSON_String "eAF" => res eAF
+  | JSON_String "eB0"  => res eB0 | JSON_String "eB1"  => res eB1
+  | JSON_String "eB2"  => res eB2 | JSON_String "eB3"  => res eB3
+  | JSON_String "eB4"  => res eB4 | JSON_String "eB5"  => res eB5
+  | JSON_String "eB6"  => res eB6 | JSON_String "eB7" => res eB7
+  | JSON_String "eB8"  => res eB8 | JSON_String "eB9"  => res eB9
+  | JSON_String "eBA"  => res eBA | JSON_String "eBB"  => res eBB
+  | JSON_String "eBC"  => res eBC | JSON_String "eBD"  => res eBD
+  | JSON_String "eBE"  => res eBE | JSON_String "eBF" => res eBF
+  | JSON_String "eC0"  => res eC0 | JSON_String "eC1"  => res eC1
+  | JSON_String "eC2"  => res eC2 | JSON_String "eC3"  => res eC3
+  | JSON_String "eC4"  => res eC4 | JSON_String "eC5"  => res eC5
+  | JSON_String "eC6"  => res eC6 | JSON_String "eC7" => res eC7
+  | JSON_String "eC8"  => res eC8 | JSON_String "eC9"  => res eC9
+  | JSON_String "eCA"  => res eCA | JSON_String "eCB"  => res eCB
+  | JSON_String "eCC"  => res eCC | JSON_String "eCD"  => res eCD
+  | JSON_String "eCE"  => res eCE | JSON_String "eCF" => res eCF
+  | JSON_String "eD0"  => res eD0 | JSON_String "eD1"  => res eD1
+  | JSON_String "eD2"  => res eD2 | JSON_String "eD3"  => res eD3
+  | JSON_String "eD4"  => res eD4 | JSON_String "eD5"  => res eD5
+  | JSON_String "eD6"  => res eD6 | JSON_String "eD7" => res eD7
+  | JSON_String "eD8"  => res eD8 | JSON_String "eD9"  => res eD9
+  | JSON_String "eDA"  => res eDA | JSON_String "eDB"  => res eDB
+  | JSON_String "eDC"  => res eDC | JSON_String "eDD"  => res eDD
+  | JSON_String "eDE"  => res eDE | JSON_String "eDF" => res eDF
+  | JSON_String "eE0"  => res eE0 | JSON_String "eE1"  => res eE1
+  | JSON_String "eE2"  => res eE2 | JSON_String "eE3"  => res eE3
+  | JSON_String "eE4"  => res eE4 | JSON_String "eE5"  => res eE5
+  | JSON_String "eE6"  => res eE6 | JSON_String "eE7" => res eE7
+  | JSON_String "eE8"  => res eE8 | JSON_String "eE9"  => res eE9
+  | JSON_String "eEA"  => res eEA | JSON_String "eEB"  => res eEB
+  | JSON_String "eEC"  => res eEC | JSON_String "eED"  => res eED
+  | JSON_String "eEE"  => res eEE | JSON_String "eEF" => res eEF
+  | JSON_String "eF0"  => res eF0 | JSON_String "eF1"  => res eF1
+  | JSON_String "eF2"  => res eF2 | JSON_String "eF3"  => res eF3
+  | JSON_String "eF4"  => res eF4 | JSON_String "eF5"  => res eF5
+  | JSON_String "eF6"  => res eF6 | JSON_String "eF7" => res eF7
+  | JSON_String "eF8"  => res eF8 | JSON_String "eF9"  => res eF9
+  | JSON_String "eFA"  => res eFA | JSON_String "eFB"  => res eFB
+  | JSON_String "eFC"  => res eFC | JSON_String "eFD"  => res eFD
+  | JSON_String "eFE"  => res eFE | JSON_String "eFF" => res eFF
   | _ => err err_str_json_unrecognized_constructor
   end
   ) _); destruct a; reflexivity.
