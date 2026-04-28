@@ -35,6 +35,53 @@ MODULE_RE = re.compile(
 END_RE = re.compile(r"^\s*End\s+([A-Za-z_][A-Za-z0-9_']*)\s*\.")
 TIME_RE = re.compile(r"Finished transaction in\s+([0-9.]+)\s+secs")
 
+FAILURE_CATEGORY_NOTES = {
+    "prop-target-not-supported": (
+        "expected",
+        "The declaration lives in Prop. Jsonifiable produces computational JSON data in Type, and Prop values generally cannot be eliminated into Type.",
+    ),
+    "indexed-family-not-supported": (
+        "expected-current-limitation",
+        "The declaration is an indexed family, such as bool -> Set. The current deriver expects a fully applied target whose type is exactly Set or Type.",
+    ),
+    "to-json-generation-not-supported": (
+        "expected-current-limitation",
+        "The declaration falls outside the first-order data fragment handled by the generator, commonly because of subset/proof fields, SProp, aliases such as Ensemble, or unsupported dependent structure.",
+    ),
+    "record-generation-not-supported": (
+        "expected-current-limitation",
+        "The record has fields that are not plain serializable data, such as proof fields, function fields, Type-valued fields, or dependent fields.",
+    ),
+    "to-json-elaboration-failed": (
+        "expected-current-limitation-or-review",
+        "Rocq rejected the generated to_json term. In the current Corelib/Stdlib run these cases are indexed/dependent families, relation/function parameters, or records over value parameters.",
+    ),
+    "from-json-elaboration-failed": (
+        "expected-current-limitation-or-review",
+        "Rocq rejected the generated from_json term. Inspect the captured diagnostic to decide whether the declaration is outside the supported fragment or exposes a deriver bug.",
+    ),
+    "scanner-or-logical-path": (
+        "scanner-limitation",
+        "The source scanner found a declaration whose constructed logical path is not directly addressable, typically because it is inside a functor, module type, or locally encapsulated module.",
+    ),
+    "universe-polymorphism-not-supported": (
+        "expected-current-limitation",
+        "The declaration uses universe behavior that the deriver does not currently support, including SProp/universe-polymorphic cases.",
+    ),
+    "coinductive-not-supported": (
+        "expected-current-limitation",
+        "The declaration is coinductive. The current Jsonifiable derivation handles inductive data, not potentially infinite coinductive values.",
+    ),
+    "timeout": (
+        "needs-review",
+        "The probe timed out before Rocq produced a result.",
+    ),
+    "other": (
+        "needs-review",
+        "The failure did not match a known diagnostic category. Inspect the full log before classifying it as expected.",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -45,6 +92,8 @@ class Candidate:
     has_prop_argument: bool
     has_indices: bool
     has_non_sort_parameter: bool
+    has_untyped_parameter: bool
+    record_data_issue: str
     import_module: str
     module: str
     name: str
@@ -65,6 +114,8 @@ class ProbeResult:
     has_prop_argument: bool
     has_indices: bool
     has_non_sort_parameter: bool
+    has_untyped_parameter: bool
+    record_data_issue: str
     module: str
     name: str
     logical_name: str
@@ -212,6 +263,124 @@ def declaration_has_non_sort_parameter(snippet: str) -> bool:
     return False
 
 
+def mask_binders(surface: str) -> str:
+    out: list[str] = []
+    depth = 0
+    for char in surface:
+        if char in "({":
+            depth += 1
+            out.append(" ")
+        elif char in ")}" and depth > 0:
+            depth -= 1
+            out.append(" ")
+        elif depth:
+            out.append(" ")
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def untyped_parameter_names(kind: str, name: str, snippet: str) -> list[str]:
+    surface = mask_binders(parameter_surface(snippet))
+    match = re.search(rf"\b{re.escape(kind)}\s+{re.escape(name)}\b(?P<rest>.*)$", surface)
+    if not match:
+        return []
+    rest = match.group("rest")
+    return re.findall(r"\b[A-Za-z_][A-Za-z0-9_']*\b", rest)
+
+
+def declaration_has_untyped_parameter(kind: str, name: str, snippet: str) -> bool:
+    return bool(untyped_parameter_names(kind, name, snippet))
+
+
+def top_level_brace_content(text: str) -> str | None:
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : index]
+    return None
+
+
+def split_top_level_semicolons(text: str) -> list[str]:
+    fields: list[str] = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(text):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}" and depth > 0:
+            depth -= 1
+        elif char == ";" and depth == 0:
+            field = text[start:index].strip()
+            if field:
+                fields.append(field)
+            start = index + 1
+    tail = text[start:].strip()
+    if tail:
+        fields.append(tail)
+    return fields
+
+
+def split_field(field: str) -> tuple[list[str], str] | None:
+    colon = field.find(":")
+    if colon < 0:
+        return None
+    names_part = field[:colon].replace(":>", " ").strip()
+    ty = field[colon + 1 :].strip()
+    if ty.startswith(">"):
+        ty = ty[1:].strip()
+    names = [name for name in re.findall(r"[A-Za-z_][A-Za-z0-9_']*", names_part) if name != "_"]
+    return names, ty
+
+
+def field_type_is_sort(ty: str) -> bool:
+    return bool(re.fullmatch(r"(Prop|Set|Type(?:@\{[^}]+\})?)", ty.strip()))
+
+
+def field_type_is_function(ty: str) -> bool:
+    return "->" in ty or bool(re.search(r"\bforall\b", ty))
+
+
+def field_type_mentions(names: list[str], ty: str) -> bool:
+    return any(re.search(rf"\b{re.escape(name)}\b", ty) for name in names)
+
+
+def record_data_issue(kind: str, name: str, snippet: str) -> str:
+    if kind not in {"Record", "Structure"}:
+        return ""
+    body = top_level_brace_content(snippet)
+    if body is None:
+        return "record-without-brace-fields"
+
+    untyped_params = untyped_parameter_names(kind, name, snippet)
+    previous_fields: list[str] = []
+    for field in split_top_level_semicolons(body):
+        parsed = split_field(field)
+        if parsed is None:
+            return "record-unparsed-field"
+        names, ty = parsed
+        if field.lstrip().startswith("_"):
+            return "record-proof-or-unnamed-field"
+        if field_type_is_sort(ty):
+            return "record-sort-valued-field"
+        if field_type_is_function(ty):
+            return "record-function-field"
+        if field_type_mentions(previous_fields, ty):
+            return "record-dependent-field"
+        if field_type_mentions(untyped_params, ty) and ty.strip() not in untyped_params:
+            return "record-field-uses-untyped-parameter"
+        previous_fields.extend(names)
+    return ""
+
+
 def make_candidate(
     root_name: str,
     kind: str,
@@ -232,6 +401,8 @@ def make_candidate(
         declaration_has_prop_argument(snippet),
         declaration_has_indices(snippet),
         declaration_has_non_sort_parameter(snippet),
+        declaration_has_untyped_parameter(kind, name, snippet),
+        record_data_issue(kind, name, snippet),
         import_module,
         module,
         name,
@@ -306,7 +477,7 @@ def file_prelude() -> str:
         [
             "From RocqJSON Require Import JSON JSON_Derive JSON_Error_Strings.",
             "Local Open Scope string_scope.",
-            "Set Warnings \"-notation-overridden\".",
+            "Set Warnings \"-notation-overridden,-require-in-module\".",
             "",
         ]
     )
@@ -354,7 +525,7 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
 
     text = output.lower()
     if candidate.target_sort == "Prop":
-        return "prop-target-skipped"
+        return "prop-target-not-supported"
     if candidate.kind == "CoInductive":
         return "coinductive-not-supported"
     if "cannot be called on a constant" in text:
@@ -392,6 +563,13 @@ def safe_path_part(value: str) -> str:
     return safe[:180].strip("._") or "candidate"
 
 
+def safe_module_name(index: int, candidate: Candidate) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_]+", "_", candidate.logical_name).strip("_") or "Candidate"
+    if safe[0].isdigit():
+        safe = f"Candidate_{safe}"
+    return f"JsonifiableBench_{index:05d}_{safe}"
+
+
 def probe_candidate(
     candidate: Candidate,
     index: int,
@@ -416,6 +594,8 @@ def probe_candidate(
                 f"   has Prop argument: {candidate.has_prop_argument}",
                 f"   has indices: {candidate.has_indices}",
                 f"   has non-sort parameter: {candidate.has_non_sort_parameter}",
+                f"   has untyped parameter: {candidate.has_untyped_parameter}",
+                f"   record data issue: {candidate.record_data_issue or 'none'}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 require_line(candidate),
                 derive_command(candidate),
@@ -444,6 +624,8 @@ def probe_candidate(
             candidate.has_prop_argument,
             candidate.has_indices,
             candidate.has_non_sort_parameter,
+            candidate.has_untyped_parameter,
+            candidate.record_data_issue,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -473,6 +655,8 @@ def probe_candidate(
             candidate.has_prop_argument,
             candidate.has_indices,
             candidate.has_non_sort_parameter,
+            candidate.has_untyped_parameter,
+            candidate.record_data_issue,
             candidate.module,
             candidate.name,
             candidate.logical_name,
@@ -499,24 +683,27 @@ def write_csv(path: Path, rows: Iterable[ProbeResult]) -> None:
 
 
 def write_benchmark_file(path: Path, candidates: list[Candidate]) -> None:
-    imports = sorted({require_line(candidate) for candidate in candidates})
     lines = [
         "(* Generated by scripts/bench_jsonifiable_stdlib.py. *)",
         "(* This file contains timed Jsonifiable derivations for probed-successful Corelib/Stdlib inductives. *)",
         "",
         file_prelude(),
-        *imports,
-        "",
     ]
     for index, candidate in enumerate(candidates, start=1):
+        module_name = safe_module_name(index, candidate)
         lines.extend(
             [
                 f"(* {index}. {candidate.logical_name}",
                 f"   kind: {candidate.kind}; target sort: {candidate.target_sort}",
                 f"   arity: {candidate.arity}",
                 f"   has non-sort parameter: {candidate.has_non_sort_parameter}",
+                f"   has untyped parameter: {candidate.has_untyped_parameter}",
+                f"   record data issue: {candidate.record_data_issue or 'none'}",
                 f"   source: {candidate.source}:{candidate.line} *)",
+                f"Module {module_name}.",
+                require_line(candidate),
                 derive_command(candidate),
+                f"End {module_name}.",
                 "",
             ]
         )
@@ -547,19 +734,44 @@ def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
         path.write_text("\n".join(lines), encoding="utf-8")
         return
 
+    category_counts: dict[str, int] = {}
     for row in failures:
+        category_counts[row.category] = category_counts.get(row.category, 0) + 1
+
+    lines.extend(["## Category Summary", ""])
+    for category, count in sorted(category_counts.items(), key=lambda item: (-item[1], item[0])):
+        disposition, explanation = FAILURE_CATEGORY_NOTES.get(category, FAILURE_CATEGORY_NOTES["other"])
         lines.extend(
             [
-                f"## {row.logical_name}",
+                f"### {category}",
+                "",
+                f"- count: `{count}`",
+                f"- disposition: `{disposition}`",
+                f"- explanation: {explanation}",
+                "",
+            ]
+        )
+
+    lines.extend(["## Individual Failures", ""])
+
+    for row in failures:
+        disposition, explanation = FAILURE_CATEGORY_NOTES.get(row.category, FAILURE_CATEGORY_NOTES["other"])
+        lines.extend(
+            [
+                f"### {row.logical_name}",
                 "",
                 f"- status: `{row.status}`",
                 f"- category: `{row.category}`",
+                f"- disposition: `{disposition}`",
+                f"- category explanation: {explanation}",
                 f"- declaration kind: `{row.kind}`",
                 f"- target sort: `{row.target_sort}`",
                 f"- arity: `{row.arity}`",
                 f"- has Prop argument: `{row.has_prop_argument}`",
                 f"- has indices: `{row.has_indices}`",
                 f"- has non-sort parameter: `{row.has_non_sort_parameter}`",
+                f"- has untyped parameter: `{row.has_untyped_parameter}`",
+                f"- record data issue: `{row.record_data_issue or 'none'}`",
                 f"- source: `{row.source}:{row.line}`",
                 f"- probe file: `{row.probe_file}`",
                 f"- full log: `{row.log_file}`",
@@ -583,35 +795,49 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--probe-timeout", type=int, default=45)
     parser.add_argument("--skip-dune-build", action="store_true")
     parser.add_argument(
+        "--data-like-only",
+        action="store_true",
+        help="skip declarations outside the conservative data-like fragment; by default every discovered declaration is probed",
+    )
+    parser.add_argument(
         "--include-prop-targets",
         action="store_true",
-        help="probe declarations whose final arity sort is Prop; by default they are recorded and skipped",
+        help="with --data-like-only, still probe declarations whose final arity sort is Prop",
     )
     parser.add_argument(
         "--include-prop-arguments",
         action="store_true",
-        help="probe declarations with Prop in explicit parameter types; by default they are recorded and skipped",
+        help="with --data-like-only, still probe declarations with Prop in explicit parameter types",
     )
     parser.add_argument(
         "--include-indexed-families",
         action="store_true",
-        help="probe declarations whose final arity still has non-sort arguments, e.g. bool -> Set",
+        help="with --data-like-only, still probe declarations whose final arity still has non-sort arguments, e.g. bool -> Set",
     )
     parser.add_argument(
         "--include-non-sort-parameters",
         action="store_true",
-        help="probe declarations with explicit parameters whose type is not exactly Set or Type",
+        help="with --data-like-only, still probe declarations with explicit parameters whose type is not exactly Set or Type",
+    )
+    parser.add_argument(
+        "--include-non-data-records",
+        action="store_true",
+        help="with --data-like-only, still probe records whose fields are not ordinary data fields, such as proof, Type-valued, function, or dependent fields",
     )
     return parser.parse_args()
 
 
 def skip_reason(candidate: Candidate, args: argparse.Namespace) -> str | None:
+    if not args.data_like_only:
+        return None
     if candidate.target_sort == "Prop" and not args.include_prop_targets:
         return "prop-target"
     if candidate.has_prop_argument and not args.include_prop_arguments:
         return "prop-argument"
     if candidate.has_non_sort_parameter and not args.include_non_sort_parameters:
         return "non-sort-parameter"
+    if candidate.record_data_issue and not args.include_non_data_records:
+        return candidate.record_data_issue
     if candidate.has_indices and not args.include_indexed_families:
         return "indexed-family"
     return None
@@ -724,6 +950,8 @@ def main(args: argparse.Namespace) -> int:
                 "has_prop_argument",
                 "has_indices",
                 "has_non_sort_parameter",
+                "has_untyped_parameter",
+                "record_data_issue",
                 "source",
                 "line",
                 "rocq_time_seconds",
@@ -742,6 +970,8 @@ def main(args: argparse.Namespace) -> int:
                     "has_prop_argument": candidate.has_prop_argument,
                     "has_indices": candidate.has_indices,
                     "has_non_sort_parameter": candidate.has_non_sort_parameter,
+                    "has_untyped_parameter": candidate.has_untyped_parameter,
+                    "record_data_issue": candidate.record_data_issue,
                     "source": candidate.source,
                     "line": candidate.line,
                     "rocq_time_seconds": seconds,
