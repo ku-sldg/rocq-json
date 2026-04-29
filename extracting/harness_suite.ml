@@ -86,8 +86,8 @@ let () =
   let handwritten_role = J.userRole_Jsonifiable' in
   let handwritten_tree = J.binTree_Jsonifiable' nat_jsonifiable in
   bench "point2d_generated" (roundtrip generated_point.J.to_JSON generated_point.J.from_JSON point_values);
-  bench "point2d_handwritten" (roundtrip handwritten_point.J.to_JSON handwritten_point.J.from_JSON point_values);
+  bench "point2d_handwritten" (roundtrip (handwritten_point nat_jsonifiable).J.to_JSON (handwritten_point nat_jsonifiable).J.from_JSON point_values);
   bench "userrole_generated" (roundtrip generated_role.J.to_JSON generated_role.J.from_JSON role_values);
-  bench "userrole_handwritten" (roundtrip handwritten_role.J.to_JSON handwritten_role.J.from_JSON role_values);
+  bench "userrole_handwritten" (roundtrip (handwritten_role nat_jsonifiable string_jsonifiable).J.to_JSON (handwritten_role nat_jsonifiable string_jsonifiable).J.from_JSON role_values);
   bench "bintree_generated" (roundtrip generated_tree.J.to_JSON generated_tree.J.from_JSON tree_values);
   bench "bintree_handwritten" (roundtrip handwritten_tree.J.to_JSON handwritten_tree.J.from_JSON tree_values)

@@ -254,42 +254,50 @@ Time Elpi derive.jsonifiable "Stdlib.btauto.Algebra.poly".
 
 Set Default Proof Mode "Classic".
 
-Definition Point2D_Jsonifiable' : Jsonifiable Point2D.
+Definition Point2D_Jsonifiable' `{JN : Jsonifiable nat} : Jsonifiable Point2D.
 refine (Build_Jsonifiable _ (fun p =>
   match p with
   | MkPoint2D x y =>
-      JSON_Object [("MkPoint2D", JSON_Object [("x", JSON_Nat x); ("y", JSON_Nat y)])]
+      JSON_Object [("MkPoint2D", JSON_Object [("x", to_JSON x); ("y", to_JSON y)])]
   end) (fun js =>
   match js with
-  | JSON_Object [("MkPoint2D", JSON_Object [("x", JSON_Nat x); ("y", JSON_Nat y)])] =>
+  | JSON_Object [("MkPoint2D", JSON_Object [("x", xv); ("y", yv)])] =>
+      x <- from_JSON xv ;;
+      y <- from_JSON yv ;;
       res (MkPoint2D x y)
   | _ => err err_str_json_unrecognized_constructor
   end) _).
 destruct a; cbn.
+erewrite canonical_jsonification.
+erewrite canonical_jsonification.
 reflexivity.
 Defined.
 
-Definition UserRole_Jsonifiable' : Jsonifiable UserRole.
+Definition UserRole_Jsonifiable' `{JN : Jsonifiable nat, JS : Jsonifiable string} : Jsonifiable UserRole.
 refine (Build_Jsonifiable _ (fun r =>
   match r with
   | Admin => JSON_String "Admin"
   | Moderator level =>
-      JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat level)])]
+      JSON_Object [("Moderator", JSON_Object [("level", to_JSON level)])]
   | StandardUser id username =>
-      JSON_Object [("StandardUser", JSON_Object [("id", JSON_Nat id); ("username", JSON_String username)])]
+      JSON_Object [("StandardUser", JSON_Object [("id", to_JSON id); ("username", to_JSON username)])]
   | Guest => JSON_String "Guest"
   end) (fun js =>
   match js with
   | JSON_String "Admin" => res Admin
   | JSON_String "Guest" => res Guest
-  | JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat level)])] =>
+  | JSON_Object [("Moderator", JSON_Object [("level", jlevel)])] =>
+      level <- from_JSON jlevel ;;
       res (Moderator level)
-  | JSON_Object [("StandardUser", JSON_Object [("id", JSON_Nat id); ("username", JSON_String username)])] =>
+  | JSON_Object [("StandardUser", JSON_Object [("id", jid); ("username", usernamev)])] =>
+      id <- from_JSON jid ;;
+      username <- from_JSON usernamev ;;
       res (StandardUser id username)
   | _ => err err_str_json_unrecognized_constructor
   end) _).
-destruct a; cbn;
-  reflexivity.
+destruct a; cbn; 
+repeat (erewrite canonical_jsonification); 
+try reflexivity.
 Defined.
 
 Fixpoint bintree_to_JSON' {A : Type} `{Jsonifiable A} (t : BinTree A) : JSON :=
