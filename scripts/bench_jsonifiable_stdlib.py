@@ -33,7 +33,10 @@ MODULE_RE = re.compile(
     r"^\s*Module\s+(?:(?:Export|Import)\s+)?(?!(?:Type|Include)\b)([A-Za-z_][A-Za-z0-9_']*)\b"
 )
 END_RE = re.compile(r"^\s*End\s+([A-Za-z_][A-Za-z0-9_']*)\s*\.")
-TIME_RE = re.compile(r"Finished transaction in\s+([0-9.]+)\s+secs")
+TIME_RE = re.compile(
+    r"Finished transaction in\s+(-?[0-9.]+)\s+secs"
+    r"(?:\s+\(([0-9.]+)u,([0-9.]*)s\))?"
+)
 
 FAILURE_CATEGORY_NOTES = {
     "prop-target-not-supported": (
@@ -553,8 +556,29 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
     return "other"
 
 
+def parse_rocq_time_match(match: re.Match[str]) -> float:
+    """Return a non-negative elapsed time from Rocq's Time output.
+
+    Rocq can occasionally print a negative wall-clock time.  Keeping the row is
+    more important than preserving that bogus wall value, since otherwise later
+    rows become misaligned.  When this happens and user/system CPU fields are
+    present, use their sum as the best available per-transaction cost.
+    """
+
+    wall = float(match.group(1))
+    if wall >= 0:
+        return wall
+    user = float(match.group(2) or 0)
+    system = float(match.group(3) or 0)
+    return user + system
+
+
+def rocq_times(output: str) -> list[float]:
+    return [parse_rocq_time_match(match) for match in TIME_RE.finditer(output)]
+
+
 def rocq_time(output: str) -> float | None:
-    times = [float(match.group(1)) for match in TIME_RE.finditer(output)]
+    times = rocq_times(output)
     return times[-1] if times else None
 
 
@@ -935,7 +959,7 @@ def main(args: argparse.Namespace) -> int:
     wall = time.perf_counter() - start
     compile_log = out_dir / "JsonifiableStdlibBenchmark.log"
     compile_log.write_text(compile_proc.stdout, encoding="utf-8")
-    final_times = [float(match.group(1)) for match in TIME_RE.finditer(compile_proc.stdout)]
+    final_times = rocq_times(compile_proc.stdout)
     timing_rows = list(zip(successes, final_times))
     with (out_dir / "benchmark_timings.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(

@@ -48,12 +48,18 @@ The main output files are:
 
 ## Interpreting Failures
 
-Probe failures are expected for declarations outside the current data fragment.  Common categories include `prop-target-not-supported`, indexed families, records with proof/function/Type-valued fields, scanner limitations for functor-local declarations, and coinductive types.  These are reported as part of the evaluation rather than filtered out after the fact.
+Probe failures are not all claimed to be invalid inputs.  The categories are a triage aid:
+
+- Some are semantic non-targets for the current interface, such as `prop-target-not-supported` and `coinductive-not-supported`.
+- Some are current implementation limitations or possible tool bugs, such as `to-json-generation-not-supported` and `to-json-elaboration-failed`.
+- Some are benchmark harness limitations, such as `scanner-or-logical-path`.
+
+The generated `failures.md` file gives every failed declaration, its category, the source location, the probe file, and the captured Rocq diagnostic.  The generated paper macros also include one representative example per category.
 
 The supported subset is the set of declarations that successfully compile in isolation and then compile again in the combined generated benchmark file.  The paper should report both the success count and the categorized failure count.
 
 ## Expected Results
 
-On the development machine used while drafting, the broad benchmark discovered hundreds of Corelib/Stdlib declarations, successfully derived around one hundred `Jsonifiable` instances, and compiled the combined successful benchmark in a few seconds.  The extracted `enum_256` generated decoder ran within measurement noise of the handwritten decoder.
+On the development machine used while drafting, the broad benchmark discovered hundreds of Corelib/Stdlib declarations, successfully derived around one hundred `Jsonifiable` instances, and compiled the combined successful benchmark in a few seconds.  The extracted generated code was compared with handwritten baselines on a large enum, tuple-like constructor, mixed sum, and recursive tree.
 
 Exact numbers should be taken from the generated files for the final submitted artifact and paper.

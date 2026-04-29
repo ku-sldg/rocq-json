@@ -250,6 +250,7 @@ Elpi derive.jsonifiable OddState.
 (*
 In particular, a neat test case is to look at large enumerations to stress test the match-case generation and performance of the derived JSON encoders/decoders. The following are examples of such large enumerations, with 16, 32, and 256 constructors respectively.
 *)
+Time Elpi derive.jsonifiable "Stdlib.btauto.Algebra.poly".
 Inductive enum_16 :=
 | a00 | a01 | a02 | a03 | a04 | a05 | a06 | a07
 | a08 | a09 | a0A | a0B | a0C | a0D | a0E | a0F.
@@ -595,3 +596,4 @@ From Corelib Require Import Extraction.
 
 Extraction "enum_256.ml" enum_256_Jsonifiable.
 Extraction "enum_256_2.ml" enum_256_Jsonifiable'.
+Extraction "jsonifiable_suite.ml" Point2D_Jsonifiable UserRole_Jsonifiable BinTree_Jsonifiable.

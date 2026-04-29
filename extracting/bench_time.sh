@@ -25,10 +25,18 @@ run_one() {
 run=1
 while [ "$run" -le "$runs" ]; do
   echo "Running harness.exe... generated run $run/$runs"
-  run_one generated harness.exe "$run"
+  run_one enum256_generated harness.exe "$run"
   echo "Running harness_2.exe... handwritten run $run/$runs"
-  run_one handwritten harness_2.exe "$run"
+  run_one enum256_handwritten harness_2.exe "$run"
   run=$((run + 1))
+done
+
+echo "Running harness_suite.exe... mixed-shape generated/handwritten benchmarks"
+./harness_suite.exe | while IFS=' ' read -r tag name seconds; do
+  printf '%s %s %s\n' "$tag" "$name" "$seconds"
+  if [ "$tag" = "BENCH" ]; then
+    printf '%s,1,%s\n' "$name" "$seconds" >> "$csv"
+  fi
 done
 
 touch benched.stamp

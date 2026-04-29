@@ -1,7 +1,19 @@
 \documentclass[runningheads]{llncs}
 
 \usepackage{booktabs}
+\usepackage{listings}
 \usepackage{url}
+
+\input{coq-listings}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  xleftmargin=0.5em,
+  xrightmargin=0.5em
+}
 
 \IfFileExists{generated/results.tex}
   {\input{generated/results.tex}}
@@ -18,21 +30,21 @@
 \maketitle
 
 \begin{abstract}
-Rocq developments often need executable serializers for data exchange, testing,
-and extracted applications, but hand-written serializers are tedious and easy to
-disconnect from their intended inverse.  We present an ELPI-based deriver for
-\texttt{rocq-json} that automatically generates \texttt{Jsonifiable} instances
-for a practical fragment of Rocq inductive and record types.  Each generated
-instance contains an encoder, a decoder, and a proof that decoding the encoded
-value succeeds with the original value.  The implementation is not intended as a
-new theory of generic programming, nor does the underlying JSON library aim to
-be an RFC-complete JSON implementation.  Instead, the contribution is a
-performance-conscious and extraction-friendly engineering pattern for mapping
-Rocq data to a JSON-like interchange format while preserving an explicit
-invertibility theorem.  The accompanying artifact rebuilds the tool, probes
-Corelib and Stdlib declarations, classifies unsupported cases, compares
-generated and handwritten extracted code on a large enumeration benchmark, and
-regenerates the result tables used by this paper.
+  Rocq developments often need executable serializers for data exchange, testing,
+  and extracted applications, but hand-written serializers are tedious and easy to
+  disconnect from their intended inverse.  We present an ELPI-based deriver for
+  \texttt{rocq-json} that automatically generates \texttt{Jsonifiable} instances
+  for a practical fragment of Rocq inductive and record types.  Each generated
+  instance contains an encoder, a decoder, and a proof that decoding the encoded
+  value succeeds with the original value.  The implementation is not intended as a
+  new theory of generic programming, nor does the underlying JSON library aim to
+  be an RFC-complete JSON implementation.  Instead, the contribution is a
+  performance-conscious and extraction-friendly engineering pattern for mapping
+  Rocq data to a JSON-like interchange format while preserving an explicit
+  invertibility theorem.  The accompanying artifact rebuilds the tool, probes
+  Corelib and Stdlib declarations, classifies unsupported cases, compares
+  generated and handwritten extracted code on a large enumeration benchmark, and
+  regenerates the result tables used by this paper.
 \end{abstract}
 
 \section{Introduction}
@@ -43,15 +55,16 @@ important enough that a bug can invalidate testing infrastructure or extracted
 tools.  In Rocq, this tension is especially visible for data types that are
 defined primarily for proofs and then reused in extracted programs.
 
-\texttt{rocq-json} addresses this problem with a typeclass:
-\[
-  \texttt{to\_JSON : A -> JSON}, \quad
-  \texttt{from\_JSON : JSON -> Result A string}
-\]
-together with the law
-\[
-  \texttt{forall a, from\_JSON (to\_JSON a) = res a}.
-\]
+\texttt{rocq-json} addresses this problem with the following typeclass:
+
+\begin{lstlisting}[language=Coq]
+Class Jsonifiable (A : Type) := {
+  to_JSON     : A -> JSON;
+  from_JSON   : JSON -> Result A string;
+  canonical_jsonification : forall (a : A), from_JSON (to_JSON a) = res a
+}.
+\end{lstlisting}
+
 The deriver described here generates all three components for many ordinary
 inductive and record types.  It is implemented in coq-elpi and exposed through
 the command \texttt{Elpi derive.jsonifiable T}.
@@ -81,6 +94,31 @@ encoded as singleton JSON objects whose key is the constructor name and whose
 value stores named fields.  Records are encoded as JSON objects keyed by
 projection names.
 
+For example, the following declaration and command are enough to produce an
+encoder, decoder, proof, and registered instance:
+
+\begin{lstlisting}[language=Coq]
+Inductive UserRole : Type :=
+| Admin
+| Moderator (level : nat)
+| StandardUser (id : nat) (username : string)
+| Guest.
+Elpi derive.jsonifiable UserRole.
+\end{lstlisting}
+
+The generated representation uses a string for nullary constructors and an
+object for constructors with fields:
+
+\begin{lstlisting}[language=Coq]
+Example role_roundtrip (r : UserRole) :
+  from_JSON (to_JSON r) = res r := canonical_jsonification r.
+
+Example moderator_json :
+  to_JSON (Moderator 2) =
+    JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat 2)])] :=
+  eq_refl.
+\end{lstlisting}
+
 For parameterized data types, the generated instance abstracts over
 \texttt{Jsonifiable} instances for the type parameters.  For recursive types,
 the generated encoder and decoder use structurally recursive definitions.  The
@@ -88,6 +126,15 @@ current implementation also supports a conservative collection of nested
 recursive occurrences through standard data containers such as lists, options,
 and products.  More general nested or mutually recursive types are reported as
 unsupported rather than handled partially by ad hoc guesses.
+
+\begin{lstlisting}[language=Coq]
+Inductive BinTree (A : Type) : Type :=
+| BinLeaf
+| BinNode (left : BinTree A) (value : A) (right : BinTree A).
+Elpi derive.jsonifiable BinTree.
+Check BinTree_Jsonifiable :
+  forall A, Jsonifiable A -> Jsonifiable (BinTree A).
+\end{lstlisting}
 
 The generated proof is part of the public contract.  A successful derivation
 does not merely produce functions with plausible behavior; it registers a
@@ -136,54 +183,77 @@ containing all successful derivations.  This workflow is deliberately
 conservative: unsupported declarations remain visible as categorized failures.
 
 \begin{table}
-\centering
-\caption{Corelib/Stdlib applicability summary.}
-\begin{tabular}{lr}
-\toprule
-Metric & Count \\
-\midrule
-Discovered declarations & \JsonifiableDiscovered \\
-Probed declarations & \JsonifiableProbed \\
-Successful probes & \JsonifiableProbeSuccesses \\
-Probe failures & \JsonifiableProbeFailures \\
-Probe timeouts & \JsonifiableProbeTimeouts \\
-Timed successful derivations & \JsonifiableTimedDerivations \\
-\bottomrule
-\end{tabular}
+  \centering
+  \caption{Corelib/Stdlib applicability summary.}
+  \begin{tabular}{lr}
+    \toprule
+    Metric                       & Count                        \\
+    \midrule
+    Discovered declarations      & \JsonifiableDiscovered       \\
+    Probed declarations          & \JsonifiableProbed           \\
+    Successful probes            & \JsonifiableProbeSuccesses   \\
+    Probe failures               & \JsonifiableProbeFailures    \\
+    Probe timeouts               & \JsonifiableProbeTimeouts    \\
+    Timed successful derivations & \JsonifiableTimedDerivations \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \begin{table}
-\centering
-\caption{Successful derivations by declaration shape and library.}
-\begin{tabular}{lr@{\qquad}lr}
-\toprule
-Shape & Count & Library & Count \\
-\midrule
-Inductive & \JsonifiableSuccessInductives & Corelib & \JsonifiableSuccessCorelib \\
-Variant & \JsonifiableSuccessVariants & Stdlib & \JsonifiableSuccessStdlib \\
-Record/Structure & \JsonifiableSuccessRecords & & \\
-\bottomrule
-\end{tabular}
+  \centering
+  \caption{Successful derivations by declaration shape and library.}
+  \begin{tabular}{lr@{\qquad}lr}
+    \toprule
+    Shape            & Count                         & Library & Count                      \\
+    \midrule
+    Inductive        & \JsonifiableSuccessInductives & Corelib & \JsonifiableSuccessCorelib \\
+    Variant          & \JsonifiableSuccessVariants   & Stdlib  & \JsonifiableSuccessStdlib  \\
+    Record/Structure & \JsonifiableSuccessRecords    &         &                            \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \begin{table}
-\centering
-\caption{Failure categories reported by the probe benchmark.}
-\begin{tabular}{lr}
-\toprule
-Category & Count \\
-\midrule
-\JsonifiableFailureRows
-\bottomrule
-\end{tabular}
+  \centering
+  \caption{Failure categories reported by the probe benchmark.}
+  \begin{tabular}{lr}
+    \toprule
+    Category & Count \\
+    \midrule
+    \JsonifiableFailureRows
+    \bottomrule
+  \end{tabular}
 \end{table}
 
-The dominant failure categories are expected limitations of the current data
-fragment: propositions, indexed families, records containing proof or function
-fields, coinductive declarations, universe-polymorphic cases, and declarations
-found by source scanning but not addressable through the generated logical
-path.  These failures are useful artifact outputs, not discarded noise, because
-they state where the deriver should not currently be used.
+The category names in this table are not meant to declare every failure
+``invalid input''.  They are a triage device.  Some categories are semantic
+non-targets for this version of the tool, such as propositions or coinductive
+streams.  Others are engineering limitations or possible tool failures that
+should be treated as future work.  Table~\ref{tab:failure-examples} gives one
+representative declaration for each category and the rationale used by the
+artifact.
+
+\begin{table}
+  \centering
+  \caption{Representative failure examples and classification rationale.}
+  \label{tab:failure-examples}
+  \begin{tabular}{lrp{0.27\linewidth}p{0.36\linewidth}}
+    \toprule
+    Category & Count & Example & Rationale \\
+    \midrule
+    \JsonifiableFailureExampleRows
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The important distinction is between unsupported-by-design and unresolved.  The
+paper claims the former only for cases where the current \texttt{Jsonifiable}
+interface has no clear computational target, for example \texttt{Prop} targets
+or potentially infinite coinductive data.  Categories such as
+\texttt{to-json-elaboration-failed}, \texttt{to-json-generation-not-supported},
+and \texttt{scanner-or-logical-path} are better read as limitations of the
+implementation or benchmark harness.  They are reported explicitly so the
+success rate is auditable rather than inflated by silent filtering.
 
 \subsection{Derivation Time}
 
@@ -198,42 +268,43 @@ derivation time was \JsonifiableDerivationMeanSeconds{} seconds, the median was
 \JsonifiableDerivationMaxSeconds{} seconds.
 
 \begin{table}
-\centering
-\caption{Slowest successful derivations in the broad benchmark.}
-\begin{tabular}{llr}
-\toprule
-Declaration & Kind & Seconds \\
-\midrule
-\JsonifiableSlowestRows
-\bottomrule
-\end{tabular}
+  \centering
+  \caption{Slowest successful derivations in the broad benchmark.}
+  \begin{tabular}{llr}
+    \toprule
+    Declaration & Kind & Seconds \\
+    \midrule
+    \JsonifiableSlowestRows
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 \subsection{Extracted Code Performance}
 
-The extraction benchmark compares the generated \texttt{Jsonifiable} instance
-for an enumeration with 256 constructors against a handwritten instance with
-the same representation.  Each run serializes and deserializes every
-constructor.  The benchmark is intentionally small but targeted: earlier
-versions of the generated decoder used equality chains whose extracted runtime
-was visibly worse than handwritten pattern matching.
+The extraction benchmark compares generated code against handwritten baselines
+on several shapes: a 256-constructor enumeration, a tuple-like constructor, a
+mixed sum with both nullary and field-bearing constructors, and a recursive
+binary tree.  The enum benchmark serializes and deserializes every constructor;
+the other benchmarks run many iterations over representative values.  These
+benchmarks are still small, but they exercise different generated-code paths
+and are more informative than a single stress case.
 
 \begin{table}
-\centering
-\caption{Extracted \texttt{enum\_256} round-trip benchmark.}
-\begin{tabular}{lrrr}
-\toprule
-Implementation & Runs & Mean seconds & Median seconds \\
-\midrule
-Generated & \JsonifiableExtractionGeneratedRuns & \JsonifiableExtractionGeneratedMean & \JsonifiableExtractionGeneratedMedian \\
-Handwritten & \JsonifiableExtractionHandwrittenRuns & \JsonifiableExtractionHandwrittenMean & \JsonifiableExtractionHandwrittenMedian \\
-\bottomrule
-\end{tabular}
+  \centering
+  \caption{Extracted round-trip benchmarks.}
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Benchmark & Samples & Mean & Median & Min & Max \\
+    \midrule
+    \JsonifiableExtractionRows
+    \bottomrule
+  \end{tabular}
 \end{table}
 
-The intended conclusion is not that this microbenchmark predicts every
-serializer workload.  Rather, it checks that the deriver does not impose an
-obvious extraction penalty on a case that stresses constructor dispatch.
+The intended conclusion is not that these microbenchmarks predict every
+serializer workload.  Rather, they check that the deriver does not impose an
+obvious extraction penalty on common shapes and on a case that stresses
+constructor dispatch.
 
 \section{Artifact}
 

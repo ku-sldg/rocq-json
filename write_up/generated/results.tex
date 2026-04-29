@@ -5,23 +5,23 @@
 \newcommand{\JsonifiableProbeSuccesses}{92}
 \newcommand{\JsonifiableProbeFailures}{251}
 \newcommand{\JsonifiableProbeTimeouts}{0}
-\newcommand{\JsonifiableTimedDerivations}{91}
-\newcommand{\JsonifiableBenchmarkWallSeconds}{5.86}
-\newcommand{\JsonifiableDerivationSumSeconds}{5.09}
-\newcommand{\JsonifiableDerivationMeanSeconds}{0.056}
-\newcommand{\JsonifiableDerivationMedianSeconds}{0.031}
-\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.126}
-\newcommand{\JsonifiableDerivationMaxSeconds}{0.500}
-\newcommand{\JsonifiableSuccessInductives}{58}
+\newcommand{\JsonifiableTimedDerivations}{92}
+\newcommand{\JsonifiableBenchmarkWallSeconds}{6.00}
+\newcommand{\JsonifiableDerivationSumSeconds}{5.24}
+\newcommand{\JsonifiableDerivationMeanSeconds}{0.057}
+\newcommand{\JsonifiableDerivationMedianSeconds}{0.033}
+\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.125}
+\newcommand{\JsonifiableDerivationMaxSeconds}{0.522}
+\newcommand{\JsonifiableSuccessInductives}{59}
 \newcommand{\JsonifiableSuccessVariants}{19}
 \newcommand{\JsonifiableSuccessRecords}{12}
 \newcommand{\JsonifiableSuccessCorelib}{51}
-\newcommand{\JsonifiableSuccessStdlib}{40}
+\newcommand{\JsonifiableSuccessStdlib}{41}
 \newcommand{\JsonifiableExtractionGeneratedRuns}{10}
 \newcommand{\JsonifiableExtractionGeneratedMean}{0.000013}
 \newcommand{\JsonifiableExtractionGeneratedMedian}{0.000013}
 \newcommand{\JsonifiableExtractionHandwrittenRuns}{10}
-\newcommand{\JsonifiableExtractionHandwrittenMean}{0.000014}
+\newcommand{\JsonifiableExtractionHandwrittenMean}{0.000013}
 \newcommand{\JsonifiableExtractionHandwrittenMedian}{0.000013}
 
 \newcommand{\JsonifiableFailureRows}{%
@@ -36,12 +36,34 @@ universe-polymorphism-not-supported & 1 \\
 }
 
 \newcommand{\JsonifiableSlowestRows}{%
-Corelib.Init.Byte.byte & Inductive & 0.500 \\
-Stdlib.btauto.Algebra.poly & Inductive & 0.267 \\
+Corelib.Init.Byte.byte & Inductive & 0.522 \\
+Stdlib.btauto.Reflect.formula & Inductive & 0.276 \\
 Corelib.Init.Hexadecimal.uint & Inductive & 0.255 \\
-Stdlib.micromega.RingMicromega.Op1 & Inductive & 0.225 \\
-Stdlib.rtauto.Rtauto.form & Inductive & 0.221 \\
-Stdlib.rtauto.Rtauto.proof & Inductive & 0.190 \\
-Stdlib.setoid\_ring.Ring\_polynom.Mon & Inductive & 0.137 \\
-Stdlib.micromega.VarMap.t & Inductive & 0.136 \\
+Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.231 \\
+Stdlib.rtauto.Rtauto.proof & Inductive & 0.222 \\
+Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.186 \\
+Stdlib.Sorting.Heap.Tree & Inductive & 0.136 \\
+Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.131 \\
+}
+
+\newcommand{\JsonifiableFailureExampleRows}{%
+prop-target-not-supported & 154 & Corelib.Classes.CMorphisms.apply\_subrelation & Targets live in Prop, while Jsonifiable builds computational data in Type. \\
+to-json-generation-not-supported & 35 & Corelib.Init.Specif.sig & Generation rejected the declaration; these are treated as current limitations requiring inspection. \\
+record-generation-not-supported & 32 & Corelib.ssr.ssrbool.predType & The record contains fields without an ordinary data representation, such as proofs, functions, Type fields, or dependent fields. \\
+scanner-or-logical-path & 18 & Stdlib.FSets.FMapAVL.Raw.tree & The benchmark scanner found a source declaration whose guessed logical path is not directly derivable. \\
+to-json-elaboration-failed & 7 & Corelib.ssr.ssrbool.if\_spec & Rocq rejected the generated term; these are possible deriver gaps or unsupported dependent shapes. \\
+indexed-family-not-supported & 3 & Corelib.Init.Datatypes.reflect & The declaration is a family indexed by values, not a plain data type after parameters. \\
+coinductive-not-supported & 1 & Stdlib.Streams.Streams.Stream & The declaration is potentially infinite data, while the deriver targets inductive data. \\
+universe-polymorphism-not-supported & 1 & Stdlib.Logic.StrictProp.sEmpty & The declaration uses universe behavior outside the current monomorphic deriver path. \\
+}
+
+\newcommand{\JsonifiableExtractionRows}{%
+bintree\_generated & 1 & 0.0059 & 0.0059 & 0.0059 & 0.0059 \\
+bintree\_handwritten & 1 & 0.016 & 0.016 & 0.016 & 0.016 \\
+enum256\_generated & 10 & 0.000013 & 0.000013 & 0.000011 & 0.000015 \\
+enum256\_handwritten & 10 & 0.000013 & 0.000013 & 0.000012 & 0.000015 \\
+point2d\_generated & 1 & 0.0030 & 0.0030 & 0.0030 & 0.0030 \\
+point2d\_handwritten & 1 & 0.0033 & 0.0033 & 0.0033 & 0.0033 \\
+userrole\_generated & 1 & 0.0035 & 0.0035 & 0.0035 & 0.0035 \\
+userrole\_handwritten & 1 & 0.0074 & 0.0074 & 0.0074 & 0.0074 \\
 }
