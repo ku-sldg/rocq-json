@@ -674,9 +674,8 @@ Qed.
 
 From Corelib Require Import Extraction.
 
-Extraction "enum_256.ml" enum_256_Jsonifiable.
-Extraction "enum_256_2.ml" enum_256_Jsonifiable'.
 Extraction "jsonifiable_suite.ml"
+  enum_256_Jsonifiable enum_256_Jsonifiable'
   Point2D_Jsonifiable Point2D_Jsonifiable'
   UserRole_Jsonifiable UserRole_Jsonifiable'
   BinTree_Jsonifiable BinTree_Jsonifiable'.

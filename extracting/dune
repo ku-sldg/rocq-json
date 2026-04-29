@@ -9,15 +9,7 @@
   elpi_elpi
   elpi.apps.derive.elpi
   RocqJSON)
- (extracted_modules enum_256 enum_256_2 jsonifiable_suite))
-
-(executable
- (name harness)
- (modules harness enum_256 jsonifiable_suite))
-
-(executable
- (name harness_2)
- (modules harness_2 enum_256_2))
+ (extracted_modules jsonifiable_suite))
 
 (executable
  (name harness_suite)
@@ -26,8 +18,6 @@
 (rule
  (targets benched.stamp extraction_bench.csv)
  (deps
-  harness.exe
-  harness_2.exe
   harness_suite.exe
   (:bench bench_time.sh))
  (action
