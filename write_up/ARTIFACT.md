@@ -1,6 +1,6 @@
 # rocq-json ATVA Artifact
 
-This artifact is designed to make the paper results reproducible without hiding unsupported cases.  It rebuilds the project, probes Rocq Corelib/Stdlib inductive-like declarations, classifies failures, compiles the successful derivations into one benchmark file, runs the extracted `enum_256` generated-vs-handwritten benchmark, and regenerates the LaTeX result macros used by the paper draft.
+This artifact is designed to make the paper results reproducible without hiding unsupported cases.  It rebuilds the project, probes Rocq Corelib/Stdlib inductive-like declarations, classifies failures, compiles the successful derivations into one benchmark file, runs generated-vs-handwritten extraction benchmarks where both sides are written in Rocq, and regenerates the LaTeX result macros used by the paper draft.
 
 ## Docker Evaluation
 
@@ -43,7 +43,7 @@ The main output files are:
 - `_build/jsonifiable-stdlib-bench/probe_results.csv`: one row per probed declaration.
 - `_build/jsonifiable-stdlib-bench/benchmark_timings.csv`: successful derivations and Rocq `Time` measurements.
 - `_build/jsonifiable-stdlib-bench/failures.md`: categorized diagnostics for unsupported or failed declarations.
-- `_build/default/extracting/extraction_bench.csv`: repeated extracted OCaml generated-vs-handwritten `enum_256` timings.
+- `_build/default/extracting/extraction_bench.csv`: repeated extracted OCaml timings for generated and handwritten Rocq definitions.
 - `write_up/generated/results.tex`: LaTeX macros and table rows consumed by `write_up/paper.tex`.
 
 ## Interpreting Failures
@@ -60,6 +60,6 @@ The supported subset is the set of declarations that successfully compile in iso
 
 ## Expected Results
 
-On the development machine used while drafting, the broad benchmark discovered hundreds of Corelib/Stdlib declarations, successfully derived around one hundred `Jsonifiable` instances, and compiled the combined successful benchmark in a few seconds.  The extracted generated code was compared with handwritten baselines on a large enum, tuple-like constructor, mixed sum, and recursive tree.
+On the development machine used while drafting, the broad benchmark discovered hundreds of Corelib/Stdlib declarations, successfully derived around one hundred `Jsonifiable` instances, and compiled the combined successful benchmark in a few seconds.  The extracted generated code was compared with handwritten Rocq baselines on a large enum, tuple-like constructor, mixed sum, and recursive tree.  The sample count is controlled by `JSONIFIABLE_EXTRACTION_RUNS` and defaults to 10.
 
 Exact numbers should be taken from the generated files for the final submitted artifact and paper.

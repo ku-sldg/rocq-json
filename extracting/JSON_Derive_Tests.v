@@ -251,6 +251,78 @@ Elpi derive.jsonifiable OddState.
 In particular, a neat test case is to look at large enumerations to stress test the match-case generation and performance of the derived JSON encoders/decoders. The following are examples of such large enumerations, with 16, 32, and 256 constructors respectively.
 *)
 Time Elpi derive.jsonifiable "Stdlib.btauto.Algebra.poly".
+
+Set Default Proof Mode "Classic".
+
+Definition Point2D_Jsonifiable' : Jsonifiable Point2D.
+refine (Build_Jsonifiable _ (fun p =>
+  match p with
+  | MkPoint2D x y =>
+      JSON_Object [("MkPoint2D", JSON_Object [("x", JSON_Nat x); ("y", JSON_Nat y)])]
+  end) (fun js =>
+  match js with
+  | JSON_Object [("MkPoint2D", JSON_Object [("x", JSON_Nat x); ("y", JSON_Nat y)])] =>
+      res (MkPoint2D x y)
+  | _ => err err_str_json_unrecognized_constructor
+  end) _).
+destruct a; cbn.
+reflexivity.
+Defined.
+
+Definition UserRole_Jsonifiable' : Jsonifiable UserRole.
+refine (Build_Jsonifiable _ (fun r =>
+  match r with
+  | Admin => JSON_String "Admin"
+  | Moderator level =>
+      JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat level)])]
+  | StandardUser id username =>
+      JSON_Object [("StandardUser", JSON_Object [("id", JSON_Nat id); ("username", JSON_String username)])]
+  | Guest => JSON_String "Guest"
+  end) (fun js =>
+  match js with
+  | JSON_String "Admin" => res Admin
+  | JSON_String "Guest" => res Guest
+  | JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat level)])] =>
+      res (Moderator level)
+  | JSON_Object [("StandardUser", JSON_Object [("id", JSON_Nat id); ("username", JSON_String username)])] =>
+      res (StandardUser id username)
+  | _ => err err_str_json_unrecognized_constructor
+  end) _).
+destruct a; cbn;
+  reflexivity.
+Defined.
+
+Fixpoint bintree_to_JSON' {A : Type} `{Jsonifiable A} (t : BinTree A) : JSON :=
+  match t with
+  | BinLeaf _ => JSON_String "BinLeaf"
+  | BinNode _ l value r =>
+      JSON_Object [("BinNode", JSON_Object [
+        ("left", bintree_to_JSON' l);
+        ("value", to_JSON value);
+        ("right", bintree_to_JSON' r)])]
+  end.
+
+Fixpoint bintree_from_JSON' {A : Type} `{Jsonifiable A} (js : JSON) : Result (BinTree A) string :=
+  match js with
+  | JSON_String "BinLeaf" => res (@BinLeaf A)
+  | JSON_Object [("BinNode", JSON_Object [("left", jleft); ("value", jvalue); ("right", jright)])] =>
+      left <- bintree_from_JSON' jleft ;;
+      value <- from_JSON jvalue ;;
+      right <- bintree_from_JSON' jright ;;
+      res (@BinNode A left value right)
+  | _ => err err_str_json_unrecognized_constructor
+  end.
+
+Definition BinTree_Jsonifiable' {A : Type} `{Jsonifiable A} : Jsonifiable (BinTree A).
+refine (Build_Jsonifiable _ bintree_to_JSON' bintree_from_JSON' _).
+induction a; cbn.
+- reflexivity.
+- rewrite IHa1.
+  rewrite canonical_jsonification.
+  rewrite IHa2.
+  reflexivity.
+Defined.
+
 Inductive enum_16 :=
 | a00 | a01 | a02 | a03 | a04 | a05 | a06 | a07
 | a08 | a09 | a0A | a0B | a0C | a0D | a0E | a0F.
@@ -596,4 +668,7 @@ From Corelib Require Import Extraction.
 
 Extraction "enum_256.ml" enum_256_Jsonifiable.
 Extraction "enum_256_2.ml" enum_256_Jsonifiable'.
-Extraction "jsonifiable_suite.ml" Point2D_Jsonifiable UserRole_Jsonifiable BinTree_Jsonifiable.
+Extraction "jsonifiable_suite.ml"
+  Point2D_Jsonifiable Point2D_Jsonifiable'
+  UserRole_Jsonifiable UserRole_Jsonifiable'
+  BinTree_Jsonifiable BinTree_Jsonifiable'.

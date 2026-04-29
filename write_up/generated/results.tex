@@ -6,23 +6,23 @@
 \newcommand{\JsonifiableProbeFailures}{251}
 \newcommand{\JsonifiableProbeTimeouts}{0}
 \newcommand{\JsonifiableTimedDerivations}{92}
-\newcommand{\JsonifiableBenchmarkWallSeconds}{6.00}
-\newcommand{\JsonifiableDerivationSumSeconds}{5.24}
-\newcommand{\JsonifiableDerivationMeanSeconds}{0.057}
-\newcommand{\JsonifiableDerivationMedianSeconds}{0.033}
-\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.125}
-\newcommand{\JsonifiableDerivationMaxSeconds}{0.522}
+\newcommand{\JsonifiableBenchmarkWallSeconds}{6.94}
+\newcommand{\JsonifiableDerivationSumSeconds}{6.07}
+\newcommand{\JsonifiableDerivationMeanSeconds}{0.066}
+\newcommand{\JsonifiableDerivationMedianSeconds}{0.038}
+\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.150}
+\newcommand{\JsonifiableDerivationMaxSeconds}{0.610}
 \newcommand{\JsonifiableSuccessInductives}{59}
 \newcommand{\JsonifiableSuccessVariants}{19}
 \newcommand{\JsonifiableSuccessRecords}{12}
 \newcommand{\JsonifiableSuccessCorelib}{51}
 \newcommand{\JsonifiableSuccessStdlib}{41}
 \newcommand{\JsonifiableExtractionGeneratedRuns}{10}
-\newcommand{\JsonifiableExtractionGeneratedMean}{0.000013}
-\newcommand{\JsonifiableExtractionGeneratedMedian}{0.000013}
+\newcommand{\JsonifiableExtractionGeneratedMean}{0.000019}
+\newcommand{\JsonifiableExtractionGeneratedMedian}{0.000019}
 \newcommand{\JsonifiableExtractionHandwrittenRuns}{10}
-\newcommand{\JsonifiableExtractionHandwrittenMean}{0.000013}
-\newcommand{\JsonifiableExtractionHandwrittenMedian}{0.000013}
+\newcommand{\JsonifiableExtractionHandwrittenMean}{0.000022}
+\newcommand{\JsonifiableExtractionHandwrittenMedian}{0.000020}
 
 \newcommand{\JsonifiableFailureRows}{%
 prop-target-not-supported & 154 \\
@@ -36,14 +36,14 @@ universe-polymorphism-not-supported & 1 \\
 }
 
 \newcommand{\JsonifiableSlowestRows}{%
-Corelib.Init.Byte.byte & Inductive & 0.522 \\
-Stdlib.btauto.Reflect.formula & Inductive & 0.276 \\
-Corelib.Init.Hexadecimal.uint & Inductive & 0.255 \\
-Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.231 \\
-Stdlib.rtauto.Rtauto.proof & Inductive & 0.222 \\
-Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.186 \\
-Stdlib.Sorting.Heap.Tree & Inductive & 0.136 \\
-Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.131 \\
+Corelib.Init.Byte.byte & Inductive & 0.610 \\
+Corelib.Init.Hexadecimal.uint & Inductive & 0.308 \\
+Stdlib.btauto.Reflect.formula & Inductive & 0.295 \\
+Stdlib.rtauto.Rtauto.proof & Inductive & 0.274 \\
+Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.254 \\
+Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.229 \\
+Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.178 \\
+Stdlib.setoid\_ring.Ring\_polynom.PExpr & Inductive & 0.162 \\
 }
 
 \newcommand{\JsonifiableFailureExampleRows}{%
@@ -58,12 +58,12 @@ universe-polymorphism-not-supported & 1 & Stdlib.Logic.StrictProp.sEmpty & The d
 }
 
 \newcommand{\JsonifiableExtractionRows}{%
-bintree\_generated & 1 & 0.0059 & 0.0059 & 0.0059 & 0.0059 \\
-bintree\_handwritten & 1 & 0.016 & 0.016 & 0.016 & 0.016 \\
-enum256\_generated & 10 & 0.000013 & 0.000013 & 0.000011 & 0.000015 \\
-enum256\_handwritten & 10 & 0.000013 & 0.000013 & 0.000012 & 0.000015 \\
-point2d\_generated & 1 & 0.0030 & 0.0030 & 0.0030 & 0.0030 \\
-point2d\_handwritten & 1 & 0.0033 & 0.0033 & 0.0033 & 0.0033 \\
-userrole\_generated & 1 & 0.0035 & 0.0035 & 0.0035 & 0.0035 \\
-userrole\_handwritten & 1 & 0.0074 & 0.0074 & 0.0074 & 0.0074 \\
+bintree\_generated & 10 & 0.007514 & 0.007064 & 0.006173 & 0.009423 \\
+bintree\_handwritten & 10 & 0.006187 & 0.006098 & 0.005148 & 0.007895 \\
+enum256\_generated & 10 & 0.000019 & 0.000019 & 0.000014 & 0.000023 \\
+enum256\_handwritten & 10 & 0.000022 & 0.000020 & 0.000016 & 0.000041 \\
+point2d\_generated & 10 & 0.004652 & 0.004740 & 0.003124 & 0.006606 \\
+point2d\_handwritten & 10 & 0.001306 & 0.001233 & 0.001015 & 0.002188 \\
+userrole\_generated & 10 & 0.005070 & 0.004634 & 0.003852 & 0.008321 \\
+userrole\_handwritten & 10 & 0.003335 & 0.003135 & 0.002466 & 0.004609 \\
 }

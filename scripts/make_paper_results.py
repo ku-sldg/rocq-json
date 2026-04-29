@@ -69,6 +69,12 @@ def fmt_seconds(value: float | None) -> str:
     return f"{value:.2f}"
 
 
+def fmt_extraction_seconds(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.6f}"
+
+
 def percentile(values: list[float], pct: float) -> float | None:
     if not values:
         return None
@@ -133,10 +139,10 @@ def extraction_summary(path: Path) -> tuple[dict[str, str], list[dict[str, str]]
         for name, values in by_name.items()
     }
     for name, values in by_name.items():
-        summary[f"{name}_mean"] = fmt_seconds(statistics.mean(values))
-        summary[f"{name}_median"] = fmt_seconds(statistics.median(values))
-        summary[f"{name}_min"] = fmt_seconds(min(values))
-        summary[f"{name}_max"] = fmt_seconds(max(values))
+        summary[f"{name}_mean"] = fmt_extraction_seconds(statistics.mean(values))
+        summary[f"{name}_median"] = fmt_extraction_seconds(statistics.median(values))
+        summary[f"{name}_min"] = fmt_extraction_seconds(min(values))
+        summary[f"{name}_max"] = fmt_extraction_seconds(max(values))
     return summary, rows
 
 
@@ -152,10 +158,10 @@ def extraction_table_rows(rows: list[dict[str, str]]) -> list[str]:
                 [
                     latex_escape(name),
                     str(len(values)),
-                    fmt_seconds(statistics.mean(values)),
-                    fmt_seconds(statistics.median(values)),
-                    fmt_seconds(min(values)),
-                    fmt_seconds(max(values)),
+                    fmt_extraction_seconds(statistics.mean(values)),
+                    fmt_extraction_seconds(statistics.median(values)),
+                    fmt_extraction_seconds(min(values)),
+                    fmt_extraction_seconds(max(values)),
                 ]
             )
             + r" \\"

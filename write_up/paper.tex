@@ -42,9 +42,9 @@
   performance-conscious and extraction-friendly engineering pattern for mapping
   Rocq data to a JSON-like interchange format while preserving an explicit
   invertibility theorem.  The accompanying artifact rebuilds the tool, probes
-  Corelib and Stdlib declarations, classifies unsupported cases, compares
-  generated and handwritten extracted code on a large enumeration benchmark, and
-  regenerates the result tables used by this paper.
+Corelib and Stdlib declarations, classifies unsupported cases, compares
+generated and handwritten Rocq definitions after extraction, and
+regenerates the result tables used by this paper.
 \end{abstract}
 
 \section{Introduction}
@@ -281,13 +281,16 @@ derivation time was \JsonifiableDerivationMeanSeconds{} seconds, the median was
 
 \subsection{Extracted Code Performance}
 
-The extraction benchmark compares generated code against handwritten baselines
-on several shapes: a 256-constructor enumeration, a tuple-like constructor, a
-mixed sum with both nullary and field-bearing constructors, and a recursive
-binary tree.  The enum benchmark serializes and deserializes every constructor;
-the other benchmarks run many iterations over representative values.  These
-benchmarks are still small, but they exercise different generated-code paths
-and are more informative than a single stress case.
+The extraction benchmark compares generated definitions against handwritten
+Rocq definitions after both have been extracted to OCaml.  This keeps the
+comparison in the same source language and extraction pipeline.  The benchmark
+covers several shapes: a 256-constructor enumeration, a tuple-like constructor,
+a mixed sum with both nullary and field-bearing constructors, and a recursive
+binary tree.  Each row reports \texttt{JSONIFIABLE\_EXTRACTION\_RUNS} samples,
+which defaults to 10.  The enum benchmark serializes and deserializes every
+constructor; the other benchmarks run many iterations over representative
+values.  These benchmarks are still small, but they exercise different
+generated-code paths and are more informative than a single stress case.
 
 \begin{table}
   \centering
