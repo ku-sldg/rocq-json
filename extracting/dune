@@ -20,7 +20,7 @@
  (modules harness_2 enum_256_2))
 
 (rule
- (target benched.stamp)
+ (targets benched.stamp extraction_bench.csv)
  (deps
   harness.exe
   harness_2.exe

@@ -1,0 +1,16 @@
+FROM rocq/rocq-prover:9.0
+
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 time \
+ && rm -rf /var/lib/apt/lists/*
+
+USER coq
+WORKDIR /home/coq/rocq-json
+COPY --chown=coq:coq . .
+
+RUN opam repo add -a --set-default ku-sldg/opam-repo https://github.com/ku-sldg/opam-repo.git \
+ && opam update \
+ && opam install -y --deps-only ./rocq-json.opam
+
+CMD ["bash", "write_up/run_artifact.sh"]
