@@ -45,6 +45,17 @@ string_to_coq_string_term S CoqString :-
        (global GRfalse) (global GRtrue) (global GRAscii)
        (global GRString) S I (global GREmptyString) CoqString).
 
+func int_to_nat_term int -> term.
+int_to_nat_term 0 N :-
+  !,
+  coq.locate "Corelib.Init.Datatypes.O" (indc OC),
+  N = global (indc OC).
+int_to_nat_term I N :-
+  I > 0,
+  coq.locate "Corelib.Init.Datatypes.S" (indc SC),
+  I1 is I - 1,
+  N = app [global (indc SC), {int_to_nat_term I1}].
+
 % ============================================================================
 % Type helpers
 % ============================================================================
@@ -611,7 +622,7 @@ count-ctor-args (prod _ ArgTy Body) N [ArgTy|Rest] :- !,
 count-ctor-args _ 0 [].
 
 % ============================================================================
-% string_dec dispatch helpers.
+% String trie dispatch helpers.
 % ============================================================================
 
 func ctor-name-pairs list json-ctor-view -> list (pair string json-ctor-view).
@@ -791,6 +802,151 @@ build-char-bit-dispatch
     REST Bits NextPos OneCodes Pairs Default
     FalseG TrueG AsciiCtorG AsciiTy ResG BoolTy StrTy TrueBody,
   Body = match Bit (fun `_` BoolTy (_\ {{Result _ string}}))
+    [ TrueBody, FalseBody ].
+
+func terminal-index list (pair string int) -> option int.
+terminal-index [] none.
+terminal-index [pr "" I|_] (some I) :- !.
+terminal-index [_|Rest] R :- terminal-index Rest R.
+
+func nonempty-index-pairs list (pair string int) -> list (pair string int).
+nonempty-index-pairs [] [].
+nonempty-index-pairs [pr "" _|Rest] Out :- !, nonempty-index-pairs Rest Out.
+nonempty-index-pairs [P|Rest] [P|Out] :- nonempty-index-pairs Rest Out.
+
+func first-char-index-codes list (pair string int), list int -> list int.
+first-char-index-codes [] Seen Seen.
+first-char-index-codes [pr "" _|Rest] Seen Codes :- !,
+  first-char-index-codes Rest Seen Codes.
+first-char-index-codes [pr S _|Rest] Seen Codes :-
+  C is {first-char-code S},
+  if (mem-int C Seen)
+     (NextSeen = Seen)
+     (NextSeen = [C|Seen]),
+  first-char-index-codes Rest NextSeen Codes.
+
+func strip-code-index-pairs int, list (pair string int) -> list (pair string int).
+strip-code-index-pairs _ [] [].
+strip-code-index-pairs C [pr S I|Rest] Out :-
+  if (S = "")
+     (strip-code-index-pairs C Rest Out)
+     (SC is {first-char-code S},
+      if (SC = C)
+         (Tail is {tail-string S},
+          strip-code-index-pairs C Rest RestOut,
+          Out = [pr Tail I|RestOut])
+         (strip-code-index-pairs C Rest Out)).
+
+pred indexed-ctor-name-pairs i:list json-ctor-view, i:int, o:list (pair string int).
+indexed-ctor-name-pairs [] _ [].
+indexed-ctor-name-pairs [CtorView|CtorViews] I [pr KName I|Rest] :-
+  KName is {ctor-view-name CtorView},
+  I1 is I + 1,
+  indexed-ctor-name-pairs CtorViews I1 Rest.
+
+pred build-string-index-dispatch
+  i:term, i:list (pair string int), o:term.
+build-string-index-dispatch S Pairs Body :-
+  coq.locate "Corelib.Init.Datatypes.false" GRfalse,
+  coq.locate "Corelib.Init.Datatypes.true"  GRtrue,
+  coq.locate "Stdlib.Strings.Ascii.Ascii"   GRAsciiCtor,
+  coq.locate "Stdlib.Strings.Ascii.ascii"   (indt AsciiInd),
+  coq.locate "Corelib.Init.Datatypes.Some"  (indc SomeC),
+  coq.locate "Corelib.Init.Datatypes.None"  (indc NoneC),
+  nat-ty NatTy,
+  bool-ty BoolTy,
+  str-ty StrTy,
+  option-ty NatTy OptionNatTy,
+  NoneTerm = app [global (indc NoneC), NatTy],
+  build-string-index-dispatch-loop
+    S Pairs NoneTerm OptionNatTy
+    (global GRfalse) (global GRtrue) (global GRAsciiCtor)
+    (global (indt AsciiInd)) (global (indc SomeC))
+    NatTy BoolTy StrTy Body.
+
+pred build-string-index-dispatch-loop
+  i:term, i:list (pair string int), i:term, i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-string-index-dispatch-loop
+    S Pairs NoneTerm OptionNatTy FalseG TrueG AsciiCtorG AsciiTy
+    SomeG NatTy BoolTy StrTy Body :-
+  Terminal = {terminal-index Pairs},
+  if (Terminal = some I)
+     (EmptyBranch = app [SomeG, NatTy, {int_to_nat_term I}])
+     (EmptyBranch = NoneTerm),
+  Nonempty = {nonempty-index-pairs Pairs},
+  Codes = {first-char-index-codes Nonempty []},
+  @pi-decl `ch` AsciiTy CH\
+  @pi-decl `rest` StrTy REST\
+    build-char-index-dispatch
+      CH REST Codes Nonempty NoneTerm OptionNatTy
+      FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy
+      (ConsBranch CH REST),
+  Body = match S (fun `_` StrTy (_\ OptionNatTy))
+    [ EmptyBranch
+    , fun `ch` AsciiTy (ch\ fun `rest` StrTy (rest\ ConsBranch ch rest))
+    ].
+
+pred build-char-index-dispatch
+  i:term, i:term, i:list int, i:list (pair string int), i:term, i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-char-index-dispatch
+    _CH _REST [] _Pairs NoneTerm _OptionNatTy
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _SomeG _NatTy _BoolTy _StrTy NoneTerm :- !.
+build-char-index-dispatch
+    CH REST Codes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy Body :-
+  coq.build-match CH AsciiTy
+    (_\_\_\ R\ R = OptionNatTy)
+    (K\ KTy\ Vars\ VarTys\
+      build-ascii-index-dispatch-branch
+        REST Codes Pairs NoneTerm OptionNatTy
+        FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy
+        K KTy Vars VarTys)
+    Body.
+
+pred build-ascii-index-dispatch-branch
+  i:term, i:list int, i:list (pair string int), i:term, i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term,
+  i:term, i:term, i:list term, i:list term, o:term.
+build-ascii-index-dispatch-branch
+    REST Codes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy
+    _K _KTy [B0, B1, B2, B3, B4, B5, B6, B7] _VarTys Body :-
+  build-char-bit-index-dispatch
+    REST [B0, B1, B2, B3, B4, B5, B6, B7] 0 Codes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy Body.
+build-ascii-index-dispatch-branch
+    _REST _Codes _Pairs _NoneTerm _OptionNatTy
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _SomeG _NatTy _BoolTy _StrTy
+    K _KTy Vars VarTys _Body :-
+  coq.error "derive.jsonifiable: expected ascii branch with 8 fields" K Vars VarTys.
+
+pred build-char-bit-index-dispatch
+  i:term, i:list term, i:int, i:list int, i:list (pair string int), i:term, i:term,
+  i:term, i:term, i:term, i:term, i:term, i:term, i:term, i:term, o:term.
+build-char-bit-index-dispatch
+    _REST _Bits _Pos [] _Pairs NoneTerm _OptionNatTy
+    _FalseG _TrueG _AsciiCtorG _AsciiTy _SomeG _NatTy _BoolTy _StrTy NoneTerm :- !.
+build-char-bit-index-dispatch
+    REST _Bits 8 [Code|_] Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy Body :- !,
+  MatchingPairs = {strip-code-index-pairs Code Pairs},
+  build-string-index-dispatch-loop
+    REST MatchingPairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy Body.
+build-char-bit-index-dispatch
+    REST [Bit|Bits] Pos Codes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy Body :-
+  split-codes-by-bit Pos Codes ZeroCodes OneCodes,
+  NextPos is Pos + 1,
+  build-char-bit-index-dispatch
+    REST Bits NextPos ZeroCodes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy FalseBody,
+  build-char-bit-index-dispatch
+    REST Bits NextPos OneCodes Pairs NoneTerm OptionNatTy
+    FalseG TrueG AsciiCtorG AsciiTy SomeG NatTy BoolTy StrTy TrueBody,
+  Body = match Bit (fun `_` BoolTy (_\ OptionNatTy))
     [ TrueBody, FalseBody ].
 
 % ============================================================================
@@ -1071,32 +1227,32 @@ build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [ar
 % Scrutinizes `tag : string` and for matching ctor decodes `kvs`.
 % ============================================================================
 
-func build-obj-dispatch inductive, list term, term, list json-ctor-view, term, term, term -> term.
+pred build-obj-dispatch i:inductive, i:list term, i:term, i:list json-ctor-view, i:term, i:term, i:term, o:term.
 build-obj-dispatch Ind Params Self CtorViews Tag Kvs Default Body :-
-  coq.locate "string_dec" (const SumboolFnC),
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
-  coq.locate "Corelib.Init.Specif.sumbool" (indt SumboolIndt),
+  nat-ty NatTy,
+  option-ty NatTy OptionNatTy,
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
-  build-obj-dispatch-loop
-    Ind Params Self CtorViews Tag Kvs Default ErrTerm
-    (global (const SumboolFnC)) (global (indt SumboolIndt))
-    Body.
+  indexed-ctor-name-pairs CtorViews 0 IndexPairs,
+  build-string-index-dispatch Tag IndexPairs IndexTerm,
+  @pi-decl `idx` NatTy IDX\
+    build-obj-index-dispatch Ind Params Self CtorViews IDX Kvs Default ErrTerm (SomeBody IDX),
+  Body = match IndexTerm (fun `_` OptionNatTy (_\ {{Result _ string}}))
+    [ fun `idx` NatTy (idx\ SomeBody idx)
+    , Default
+    ].
 
-func build-obj-dispatch-loop inductive, list term, term, list json-ctor-view, term, term, term, term, term, term -> term.
-build-obj-dispatch-loop _Ind _Params _Self [] _Tag _Kvs Default _ErrTerm _SumboolFnG _SumboolG Default :- !.
-build-obj-dispatch-loop Ind Params Self [CtorView|CtorViews] Tag Kvs Default ErrTerm SumboolFnG SumboolG Body :-
-  KName is {ctor-view-name CtorView},
-  string_to_coq_string_term KName KNameTerm,
+func build-obj-index-dispatch inductive, list term, term, list json-ctor-view, term, term, term, term -> term.
+build-obj-index-dispatch _Ind _Params _Self [] _Idx _Kvs Default _ErrTerm Default :- !.
+build-obj-index-dispatch Ind Params Self [CtorView|CtorViews] Idx Kvs Default ErrTerm Body :-
+  nat-ty NatTy,
   build-ctor-body-kvs Ind Self CtorView Kvs ErrTerm [] ArmBody,
-  build-obj-dispatch-loop Ind Params Self CtorViews Tag Kvs Default ErrTerm SumboolFnG SumboolG RestBody,
-  SumboolApp = app [SumboolFnG, Tag, KNameTerm],
-  EqProp  = {{ @eq string lp:Tag lp:KNameTerm }},
-  NeqProp = {{ ~ @eq string lp:Tag lp:KNameTerm }},
-  SumboolTy = app [SumboolG, EqProp, NeqProp],
-  Body = match SumboolApp (fun `_` SumboolTy (_\ {{Result _ string}}))
-    [ fun `_` EqProp  (_\ ArmBody)
-    , fun `_` NeqProp (_\ RestBody)
+  @pi-decl `idx_tail` NatTy IDXTail\
+    build-obj-index-dispatch Ind Params Self CtorViews IDXTail Kvs Default ErrTerm (RestBody IDXTail),
+  Body = match Idx (fun `_` NatTy (_\ {{Result _ string}}))
+    [ ArmBody
+    , fun `idx_tail` NatTy (idx_tail\ RestBody idx_tail)
     ].
 
 % ============================================================================
@@ -1130,7 +1286,7 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
      build-string-trie-dispatch S EnumPairs ErrUnrec (StrDispF S)),
 
   % --- Object branch: dispatch for N-arg constructors ---
-  % Inner object kvs dispatch: ObjDispF tag kvs = match string_dec ...
+  % Inner object kvs dispatch: ObjDispF tag kvs = trie tag -> constructor index.
   @pi-decl `tag` StrTy TAG\
   @pi-decl `kvs` MapStrJsonTy KVS\
     build-obj-dispatch Ind Params SelfRef WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
