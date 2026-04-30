@@ -51,7 +51,7 @@ The main output files are:
 Probe failures are not all claimed to be invalid inputs.  The categories are a triage aid:
 
 - Some are semantic non-targets for the current interface, such as `prop-target-not-supported` and `coinductive-not-supported`.
-- Some are current implementation limitations or possible tool bugs, such as `to-json-generation-not-supported` and `to-json-elaboration-failed`.
+- Some are current implementation limitations, such as `dependent-field-not-supported`, `indexed-family-not-supported`, `proof-field-not-supported`, `sort-field-not-supported`, and `function-field-not-supported`.
 - Some are benchmark harness limitations, such as `scanner-or-logical-path`.
 
 The generated `failures.md` file gives every failed declaration, its category, the source location, the probe file, and the captured Rocq diagnostic.  The generated paper macros also include one representative example per category.

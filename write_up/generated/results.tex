@@ -2,75 +2,77 @@
 % Re-run the artifact workflow before submitting final numbers.
 \newcommand{\JsonifiableDiscovered}{343}
 \newcommand{\JsonifiableProbed}{343}
-\newcommand{\JsonifiableProbeSuccesses}{93}
-\newcommand{\JsonifiableProbeFailures}{250}
+\newcommand{\JsonifiableProbeSuccesses}{78}
+\newcommand{\JsonifiableProbeFailures}{265}
 \newcommand{\JsonifiableProbeTimeouts}{0}
-\newcommand{\JsonifiableTimedDerivations}{93}
-\newcommand{\JsonifiableBenchmarkWallSeconds}{6.13}
-\newcommand{\JsonifiableDerivationSumSeconds}{5.37}
-\newcommand{\JsonifiableDerivationMeanSeconds}{0.058}
-\newcommand{\JsonifiableDerivationMedianSeconds}{0.033}
-\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.118}
-\newcommand{\JsonifiableDerivationMaxSeconds}{0.539}
-\newcommand{\JsonifiableSuccessInductives}{53}
-\newcommand{\JsonifiableSuccessVariants}{23}
-\newcommand{\JsonifiableSuccessRecords}{15}
-\newcommand{\JsonifiableSuccessCorelib}{52}
-\newcommand{\JsonifiableSuccessStdlib}{41}
+\newcommand{\JsonifiableTimedDerivations}{78}
+\newcommand{\JsonifiableBenchmarkWallSeconds}{5.12}
+\newcommand{\JsonifiableDerivationSumSeconds}{4.35}
+\newcommand{\JsonifiableDerivationMeanSeconds}{0.056}
+\newcommand{\JsonifiableDerivationMedianSeconds}{0.035}
+\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.111}
+\newcommand{\JsonifiableDerivationMaxSeconds}{0.564}
+\newcommand{\JsonifiableSuccessInductives}{47}
+\newcommand{\JsonifiableSuccessVariants}{17}
+\newcommand{\JsonifiableSuccessRecords}{14}
+\newcommand{\JsonifiableSuccessCorelib}{39}
+\newcommand{\JsonifiableSuccessStdlib}{39}
 \newcommand{\JsonifiableExtractionGeneratedRuns}{10}
-\newcommand{\JsonifiableExtractionGeneratedMean}{0.047036}
-\newcommand{\JsonifiableExtractionGeneratedMedian}{0.044797}
+\newcommand{\JsonifiableExtractionGeneratedMean}{0.042716}
+\newcommand{\JsonifiableExtractionGeneratedMedian}{0.041911}
 \newcommand{\JsonifiableExtractionHandwrittenRuns}{10}
-\newcommand{\JsonifiableExtractionHandwrittenMean}{0.044813}
-\newcommand{\JsonifiableExtractionHandwrittenMedian}{0.043735}
+\newcommand{\JsonifiableExtractionHandwrittenMean}{0.042939}
+\newcommand{\JsonifiableExtractionHandwrittenMedian}{0.042664}
 
 \newcommand{\JsonifiableFailureRows}{%
-prop-target-not-supported & 155 \\
-to-json-generation-not-supported & 34 \\
-record-generation-not-supported & 32 \\
+prop-target-not-supported & 167 \\
+dependent-field-not-supported & 48 \\
+indexed-family-not-supported & 21 \\
 scanner-or-logical-path & 18 \\
-proof-field-not-supported & 9 \\
+function-field-not-supported & 4 \\
+proof-field-not-supported & 3 \\
+sort-field-not-supported & 3 \\
 coinductive-not-supported & 1 \\
-universe-polymorphism-not-supported & 1 \\
 }
 
 \newcommand{\JsonifiableSlowestRows}{%
-Corelib.Init.Byte.byte & Inductive & 0.539 \\
-Corelib.ssr.ssrbool.pred\_key & Variant & 0.527 \\
-Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.178 \\
-Stdlib.btauto.Reflect.formula & Inductive & 0.176 \\
-Stdlib.rtauto.Rtauto.proof & Inductive & 0.172 \\
-Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.167 \\
-Corelib.Classes.Morphisms.normalization\_done & CoInductive & 0.137 \\
-Corelib.Floats.FloatClass.float\_class & Variant & 0.125 \\
+Corelib.Init.Byte.byte & Inductive & 0.564 \\
+Stdlib.btauto.Reflect.formula & Inductive & 0.180 \\
+Stdlib.rtauto.Rtauto.proof & Inductive & 0.176 \\
+Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.163 \\
+Corelib.Floats.FloatClass.float\_class & Variant & 0.155 \\
+Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.153 \\
+Stdlib.Sorting.Heap.Tree & Inductive & 0.145 \\
+Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.113 \\
 }
 
 \newcommand{\JsonifiableFailureExampleRows}{%
-prop-target-not-supported & 155 & Corelib.Classes.CMorphisms.apply\_subrelation & Targets live in Prop, while Jsonifiable builds computational data in Type. \\
-to-json-generation-not-supported & 34 & Corelib.Init.Specif.sig & Generation rejected the declaration; these are treated as current limitations requiring inspection. \\
-record-generation-not-supported & 32 & Corelib.ssr.ssrbool.predType & The record contains fields without an ordinary data representation, such as proofs, functions, Type fields, or dependent fields. \\
+prop-target-not-supported & 167 & Corelib.Classes.CMorphisms.apply\_subrelation & Targets live in Prop, while Jsonifiable builds computational data in Type. \\
+dependent-field-not-supported & 48 & Corelib.Init.Specif.sig & A constructor field type depends on an earlier constructor argument, so a plain JSON decoder cannot reconstruct the dependent evidence. \\
+indexed-family-not-supported & 21 & Corelib.Init.Datatypes.reflect & The declaration is a family indexed by values, not a plain data type after parameters. \\
 scanner-or-logical-path & 18 & Stdlib.FSets.FMapAVL.Raw.tree & The benchmark scanner found a source declaration whose guessed logical path is not directly derivable. \\
-proof-field-not-supported & 9 & Corelib.Init.Datatypes.reflect & A constructor field lives in Prop or SProp, so the ordinary data round-trip contract would require proof erasure or proof reconstruction. \\
+function-field-not-supported & 4 & Corelib.ssr.ssrbool.implies & A constructor field is function-valued, and there is no generic JSON encoding for arbitrary functions. \\
+proof-field-not-supported & 3 & Corelib.Init.Specif.sumbool & A constructor field lives in Prop or SProp, so the ordinary data round-trip contract would require proof erasure or proof reconstruction. \\
+sort-field-not-supported & 3 & Corelib.Classes.RelationClasses.Tlist & A constructor field is itself a sort such as Type or Set, while Jsonifiable serializes data values rather than type-level objects. \\
 coinductive-not-supported & 1 & Stdlib.Streams.Streams.Stream & The declaration is potentially infinite data, while the deriver targets inductive data. \\
-universe-polymorphism-not-supported & 1 & Stdlib.Logic.StrictProp.sEmpty & The declaration uses universe behavior outside the current monomorphic deriver path. \\
 }
 
 \newcommand{\JsonifiableExtractionRows}{%
-enum256\_generated & 10 & 0.047036 & 0.044797 & 0.042794 & 0.067934 \\
-enum256\_handwritten & 10 & 0.044813 & 0.043735 & 0.042261 & 0.050335 \\
+enum256\_generated & 10 & 0.042716 & 0.041911 & 0.040905 & 0.047295 \\
+enum256\_handwritten & 10 & 0.042939 & 0.042664 & 0.041016 & 0.049128 \\
 \midrule
-point2d\_generated & 10 & 0.001251 & 0.001013 & 0.000936 & 0.002575 \\
-point2d\_handwritten & 10 & 0.001136 & 0.001092 & 0.001031 & 0.001370 \\
+point2d\_generated & 10 & 0.001006 & 0.000966 & 0.000877 & 0.001302 \\
+point2d\_handwritten & 10 & 0.001134 & 0.001093 & 0.000995 & 0.001508 \\
 \midrule
-userrole\_generated & 10 & 0.001869 & 0.001793 & 0.001631 & 0.002482 \\
-userrole\_handwritten & 10 & 0.002832 & 0.002828 & 0.002390 & 0.003388 \\
+userrole\_generated & 10 & 0.001736 & 0.001708 & 0.001628 & 0.001995 \\
+userrole\_handwritten & 10 & 0.002499 & 0.002430 & 0.002377 & 0.002733 \\
 \midrule
-serverconfig\_generated & 10 & 0.000629 & 0.000629 & 0.000569 & 0.000729 \\
-serverconfig\_handwritten & 10 & 0.001663 & 0.001583 & 0.001397 & 0.002241 \\
+serverconfig\_generated & 10 & 0.000618 & 0.000589 & 0.000567 & 0.000761 \\
+serverconfig\_handwritten & 10 & 0.001475 & 0.001443 & 0.001374 & 0.001666 \\
 \midrule
-instruction\_generated & 10 & 0.001875 & 0.001871 & 0.001543 & 0.002191 \\
-instruction\_handwritten & 10 & 0.002784 & 0.002688 & 0.002483 & 0.003307 \\
+instruction\_generated & 10 & 0.001680 & 0.001678 & 0.001579 & 0.001799 \\
+instruction\_handwritten & 10 & 0.002574 & 0.002548 & 0.002487 & 0.002689 \\
 \midrule
-bintree\_generated & 10 & 0.003647 & 0.003296 & 0.002976 & 0.004872 \\
-bintree\_handwritten & 10 & 0.005256 & 0.005128 & 0.004697 & 0.006299 \\
+bintree\_generated & 10 & 0.003335 & 0.003302 & 0.003010 & 0.003749 \\
+bintree\_handwritten & 10 & 0.004969 & 0.004976 & 0.004527 & 0.005391 \\
 }

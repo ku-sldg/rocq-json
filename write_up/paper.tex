@@ -249,11 +249,12 @@ artifact.
 The important distinction is between unsupported-by-design and unresolved.  The
 paper claims the former only for cases where the current \texttt{Jsonifiable}
 interface has no clear computational target, for example \texttt{Prop} targets
-or potentially infinite coinductive data.  Categories such as
-\texttt{to-json-elaboration-failed}, \texttt{to-json-generation-not-supported},
-and \texttt{scanner-or-logical-path} are better read as limitations of the
-implementation or benchmark harness.  They are reported explicitly so the
-success rate is auditable rather than inflated by silent filtering.
+or potentially infinite coinductive data.  The remaining unsupported categories
+name the blocking shape directly: dependent fields, indexed families,
+proof/SProp fields, sort-valued fields, or function fields.  The
+\texttt{scanner-or-logical-path} category is a limitation of the benchmark
+harness.  All categories are reported explicitly so the success rate is
+auditable rather than inflated by silent filtering.
 
 \subsection{Derivation Time}
 

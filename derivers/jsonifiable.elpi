@@ -108,6 +108,10 @@ type-contains-ind Ind (fun _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
 type-contains-ind Ind (prod _ _ Body) :- pi x\ type-contains-ind Ind (Body x).
 
 func type-head-name term -> string.
+type-head-name (sort prop) "Prop" :- !.
+type-head-name (sort sprop) "SProp" :- !.
+type-head-name (sort (typ _)) "Type" :- !.
+type-head-name (prod _ _ _) "function" :- !.
 type-head-name (global (indt GR)) Name :- !, coq.gref->id (indt GR) Name.
 type-head-name (app [global (indt GR) | _]) Name :- !, coq.gref->id (indt GR) Name.
 type-head-name _ "unknown type constructor".
@@ -116,6 +120,68 @@ pred proof-like-type i:term.
 proof-like-type Ty :-
   coq.typecheck-ty Ty Sort ok,
   (Sort == prop ; Sort == sprop).
+
+pred sort-valued-type i:term.
+sort-valued-type Ty :- coq.sort? Ty.
+
+pred function-like-type i:term.
+function-like-type (prod _ _ _).
+
+pred term-occurs i:term, i:term.
+term-occurs X T :- X == T, !.
+term-occurs X (app [H|Args]) :-
+  (term-occurs X H ; std.exists Args (term-occurs X)).
+term-occurs X (prod _ Ty Body) :-
+  (term-occurs X Ty ; pi y\ term-occurs X (Body y)).
+term-occurs X (fun _ Ty Body) :-
+  (term-occurs X Ty ; pi y\ term-occurs X (Body y)).
+
+pred arg-type-depends-on i:list term, i:term.
+arg-type-depends-on Prev Ty :-
+  std.exists Prev (x\ term-occurs x Ty).
+
+func reject-dependent-ctor-fields list term, term -> int.
+reject-dependent-ctor-fields Prev (prod N ArgTy Body) R :- !,
+  if (arg-type-depends-on Prev ArgTy)
+    (std.do! [
+      coq.name->id N ArgName,
+      HeadName is {type-head-name ArgTy},
+      coq.error
+        ("derive.jsonifiable: dependent constructor fields are not supported by Jsonifiable. Field: "
+         ^ ArgName ^ " type head: " ^ HeadName)
+    ])
+    (pi x\ R = {reject-dependent-ctor-fields [x|Prev] (Body x)}).
+reject-dependent-ctor-fields _ _ 0.
+
+pred arity-ends-in-prop-like i:term.
+arity-ends-in-prop-like (sort prop) :- !.
+arity-ends-in-prop-like (sort sprop) :- !.
+arity-ends-in-prop-like (prod _ _ Body) :- !,
+  pi x\ arity-ends-in-prop-like (Body x).
+
+pred reject-unsupported-target-arity i:int, i:term.
+reject-unsupported-target-arity ParNo Arity :-
+  Params = {make-holes ParNo},
+  Target = {apply-to-prods Params Arity},
+  reject-unsupported-target Target.
+
+pred reject-unsupported-target i:term.
+reject-unsupported-target (sort (typ _)) :- !.
+reject-unsupported-target (sort prop) :- !,
+  coq.error "derive.jsonifiable: Prop targets are not supported by Jsonifiable.".
+reject-unsupported-target (sort sprop) :- !,
+  coq.error "derive.jsonifiable: SProp targets are not supported by Jsonifiable.".
+reject-unsupported-target Ty :-
+  Ty = prod _ _ _,
+  arity-ends-in-prop-like Ty, !,
+  coq.error "derive.jsonifiable: Prop/SProp-indexed target families are not supported by Jsonifiable.".
+reject-unsupported-target (prod _ _ _) :- !,
+  coq.error "derive.jsonifiable: indexed target families are not supported by Jsonifiable.".
+reject-unsupported-target Ty :-
+  HeadName is {type-head-name Ty},
+  coq.error
+    ("derive.jsonifiable: non-plain target arity is not supported by Jsonifiable. Target head: "
+     ^ HeadName).
 
 % ============================================================================
 % Structural view of an inductive/record declaration.
@@ -128,6 +194,8 @@ kind json-arg-class type.
 type arg-param term -> json-arg-class.
 type arg-external term -> json-arg-class.
 type arg-self json-arg-class.
+type arg-sort string -> json-arg-class.
+type arg-function string -> json-arg-class.
 type arg-proof string -> json-arg-class.
 type arg-nested-supported string -> json-arg-class.
 type arg-nested-unsupported string -> json-arg-class.
@@ -163,6 +231,12 @@ func classify-json-arg inductive, list term, term -> json-arg-class.
 classify-json-arg _Ind _Params Ty (arg-proof HeadName) :-
   proof-like-type Ty, !,
   HeadName is {type-head-name Ty}.
+classify-json-arg _Ind _Params Ty (arg-sort HeadName) :-
+  sort-valued-type Ty, !,
+  HeadName is {type-head-name Ty}.
+classify-json-arg _Ind _Params Ty (arg-function HeadName) :-
+  function-like-type Ty, !,
+  HeadName is {type-head-name Ty}.
 classify-json-arg _Ind Params Ty (arg-param Ty) :- std.mem Params Ty, !.
 classify-json-arg Ind _Params Ty arg-self :- is-self-reference Ind Ty, !.
 classify-json-arg Ind _Params Ty (arg-nested-supported HeadName) :-
@@ -185,6 +259,7 @@ constructor-view Ind Params K (ctor-view K KParNo KName Arity ArgTys ArgNames Ar
   coq.gref->id (indc K) KName,
   coq.env.indc K KParNo _UParNo _Kno FullKTy,
   apply-to-prods Params FullKTy KTy,
+  _Check = {reject-dependent-ctor-fields [] KTy},
   count-ctor-args KTy Arity ArgTys,
   extract-name-type-pairs KTy NameTypePairs,
   unique-names-from-pairs NameTypePairs ArgNames,
@@ -550,10 +625,26 @@ build-named-obj-ctor KName ArgNames ArgJsons Body :-
 % Build list of `@to_JSON _ _ Vi` skeletons for non-recursive types.
 func build-to-json-args list term, list json-arg-view -> list term.
 build-to-json-args [] [] [].
-build-to-json-args [_V|_Vs] [arg-view _ _ (arg-proof HeadName)|_Args] _ :-
+build-to-json-args [_V|_Vs] [arg-view ArgName _ (arg-proof HeadName)|_Args] _ :-
   !,
   coq.error
-    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+build-to-json-args [_V|_Vs] [arg-view ArgName _ (arg-sort HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: sort-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+build-to-json-args [_V|_Vs] [arg-view ArgName _ (arg-function HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: function-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
     HeadName.
 build-to-json-args [V|Vs] [_Arg|Args] [{{ @to_JSON _ _ lp:V }}|Rs] :-
   build-to-json-args Vs Args Rs.
@@ -567,10 +658,26 @@ build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ _VTy arg-self|Args] [app [
 build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ VTy (arg-nested-supported _)|Args] [JsonV|Rs] :- !,
   build-nested-to-json-arg Ind SelfRef V VTy JsonV,
   build-to-json-args-rec Ind SelfRef Vs Args Rs.
-build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view _ _ (arg-proof HeadName)|_Args] _ :-
+build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view ArgName _ (arg-proof HeadName)|_Args] _ :-
   !,
   coq.error
-    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view ArgName _ (arg-sort HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: sort-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view ArgName _ (arg-function HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: function-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
     HeadName.
 build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view _ _VTy (arg-nested-unsupported HeadName)|_Args] _ :-
   !,
@@ -1237,10 +1344,28 @@ build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-vie
      ^ HeadName
      ^ ". Supported recursive containers are list, prod, and option.").
 
-build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-proof HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view ArgName _ (arg-proof HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
   !,
   coq.error
-    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+
+build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view ArgName _ (arg-sort HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+  !,
+  coq.error
+    "derive.jsonifiable: sort-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
+    HeadName.
+
+build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view ArgName _ (arg-function HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+  !,
+  coq.error
+    "derive.jsonifiable: function-valued constructor fields are not supported by Jsonifiable. Field:"
+    ArgName
+    "type head:"
     HeadName.
 
 % Non-self arg: decode with from_JSON
@@ -1783,6 +1908,7 @@ func main gref, string -> list prop.
 main (indt Ind) Prefix C :- std.do! [
   coq.env.indt Ind _IsInd ParNo _UParNo Arity _Kns _KTs,
   % coq.say "derive.jsonifiable: deriving for" Ind "with" ParNo "params",
+  reject-unsupported-target-arity ParNo Arity,
 
   % --- Phase 1 & 2: Build to_json and from_json ---
   % build-fun-wrapped-skeletons with ParNo=0 degenerates to the non-parametric case.

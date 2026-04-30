@@ -47,17 +47,33 @@ FAILURE_CATEGORY_NOTES = {
         "expected-current-limitation",
         "The declaration is an indexed family, such as bool -> Set. The current deriver expects a fully applied target whose type is exactly Set or Type.",
     ),
-    "to-json-generation-not-supported": (
-        "expected-current-limitation",
-        "The declaration falls outside the first-order data fragment handled by the generator, commonly because of subset/proof fields, SProp, aliases such as Ensemble, or unsupported dependent structure.",
-    ),
     "proof-field-not-supported": (
         "expected-current-limitation",
         "At least one constructor has a field whose type lives in Prop or SProp. The current Jsonifiable contract round-trips computational data and does not erase or reconstruct proofs.",
     ),
-    "record-generation-not-supported": (
+    "dependent-field-not-supported": (
         "expected-current-limitation",
-        "The record has fields that are not plain serializable data, such as proof fields, function fields, Type-valued fields, or dependent fields.",
+        "At least one constructor has a field whose type depends on an earlier constructor argument. The current JSON format does not preserve dependent evidence needed to reconstruct such values.",
+    ),
+    "prop-indexed-family-not-supported": (
+        "expected-current-limitation",
+        "The declaration is a family whose remaining indices end in Prop or SProp, such as predicates or relations. Jsonifiable targets plain computational data types.",
+    ),
+    "sort-field-not-supported": (
+        "expected-current-limitation",
+        "At least one constructor has a Type/Set/Prop-valued field. The current Jsonifiable contract serializes data values, not types or universes.",
+    ),
+    "function-field-not-supported": (
+        "expected-current-limitation",
+        "At least one constructor has a function-valued field. The current Jsonifiable contract has no generic JSON representation for functions.",
+    ),
+    "uncategorized-to-json-failure": (
+        "needs-investigation",
+        "The to_json generator failed before emitting one of the known semantic diagnostics. This is a categorization bug or a deriver gap.",
+    ),
+    "uncategorized-record-failure": (
+        "needs-investigation",
+        "The record generator failed before emitting one of the known semantic diagnostics. This is a categorization bug or a deriver gap.",
     ),
     "to-json-elaboration-failed": (
         "expected-current-limitation-or-review",
@@ -547,14 +563,28 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
         return "universe-polymorphism-not-supported"
     if "unsupported nested recursive occurrence" in text:
         return "unsupported-nested-recursion"
+    if "prop/sprop-indexed target families are not supported" in text:
+        return "prop-indexed-family-not-supported"
+    if "prop targets are not supported" in text or "sprop targets are not supported" in text:
+        return "prop-target-not-supported"
+    if "indexed target families are not supported" in text:
+        return "indexed-family-not-supported"
+    if "non-plain target arity is not supported" in text:
+        return "indexed-family-not-supported"
     if "proof/sprop constructor fields are not supported" in text:
         return "proof-field-not-supported"
+    if "dependent constructor fields are not supported" in text:
+        return "dependent-field-not-supported"
+    if "sort-valued constructor fields are not supported" in text:
+        return "sort-field-not-supported"
+    if "function-valued constructor fields are not supported" in text:
+        return "function-field-not-supported"
     if "canonical_jsonification proof could not be closed" in text or "proof incomplete" in text:
         return "proof-not-closed"
     if "build-to-json-term failed" in text:
-        return "to-json-generation-not-supported"
+        return "uncategorized-to-json-failure"
     if "build-record-fun-wrapped failed" in text:
-        return "record-generation-not-supported"
+        return "uncategorized-record-failure"
     if "to_json elaboration failed" in text:
         return "to-json-elaboration-failed"
     if "from_json elaboration failed" in text:
