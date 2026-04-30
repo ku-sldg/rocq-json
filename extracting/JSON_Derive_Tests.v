@@ -300,6 +300,57 @@ repeat (erewrite canonical_jsonification);
 try reflexivity.
 Defined.
 
+Definition ServerConfig_Jsonifiable'
+    `{JS : Jsonifiable string, JN : Jsonifiable nat, JB : Jsonifiable bool}
+    : Jsonifiable ServerConfig.
+refine (Build_Jsonifiable _ (fun cfg =>
+  match cfg with
+  | {| host := h; port := p; use_ssl := ssl |} =>
+      JSON_Object [("host", to_JSON h); ("port", to_JSON p); ("use_ssl", to_JSON ssl)]
+  end) (fun js =>
+  match js with
+  | JSON_Object [("host", jhost); ("port", jport); ("use_ssl", jssl)] =>
+      h <- from_JSON jhost ;;
+      p <- from_JSON jport ;;
+      ssl <- from_JSON jssl ;;
+      res {| host := h; port := p; use_ssl := ssl |}
+  | _ => err err_str_json_unrecognized_constructor
+  end) _).
+destruct a; cbn.
+repeat (erewrite canonical_jsonification).
+reflexivity.
+Defined.
+
+Definition Instruction_Jsonifiable' `{JN : Jsonifiable nat} : Jsonifiable Instruction.
+refine (Build_Jsonifiable _ (fun i =>
+  match i with
+  | INop => JSON_String "INop"
+  | IPush val => JSON_Object [("IPush", JSON_Object [("val", to_JSON val)])]
+  | IPop => JSON_String "IPop"
+  | ILoad reg_idx => JSON_Object [("ILoad", JSON_Object [("reg_idx", to_JSON reg_idx)])]
+  | IStore reg_idx => JSON_Object [("IStore", JSON_Object [("reg_idx", to_JSON reg_idx)])]
+  | IHalt => JSON_String "IHalt"
+  end) (fun js =>
+  match js with
+  | JSON_String "INop" => res INop
+  | JSON_String "IPop" => res IPop
+  | JSON_String "IHalt" => res IHalt
+  | JSON_Object [("IPush", JSON_Object [("val", jval)])] =>
+      val <- from_JSON jval ;;
+      res (IPush val)
+  | JSON_Object [("ILoad", JSON_Object [("reg_idx", jreg_idx)])] =>
+      reg_idx <- from_JSON jreg_idx ;;
+      res (ILoad reg_idx)
+  | JSON_Object [("IStore", JSON_Object [("reg_idx", jreg_idx)])] =>
+      reg_idx <- from_JSON jreg_idx ;;
+      res (IStore reg_idx)
+  | _ => err err_str_json_unrecognized_constructor
+  end) _).
+destruct a; cbn;
+repeat (erewrite canonical_jsonification);
+try reflexivity.
+Defined.
+
 Fixpoint bintree_to_JSON' {A : Type} `{Jsonifiable A} (t : BinTree A) : JSON :=
   match t with
   | BinLeaf _ => JSON_String "BinLeaf"
@@ -678,4 +729,6 @@ Extraction "jsonifiable_suite.ml"
   enum_256_Jsonifiable enum_256_Jsonifiable'
   Point2D_Jsonifiable Point2D_Jsonifiable'
   UserRole_Jsonifiable UserRole_Jsonifiable'
+  ServerConfig_Jsonifiable ServerConfig_Jsonifiable'
+  Instruction_Jsonifiable Instruction_Jsonifiable'
   BinTree_Jsonifiable BinTree_Jsonifiable'.

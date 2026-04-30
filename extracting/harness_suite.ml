@@ -41,6 +41,15 @@ let string_jsonifiable =
       | _ -> J.Err (js "expected string"));
   }
 
+let bool_jsonifiable =
+  {
+    J.to_JSON = (fun v -> J.JSON_Boolean v);
+    from_JSON =
+      (function
+      | J.JSON_Boolean v -> J.Res v
+      | _ -> J.Err (js "expected bool"));
+  }
+
 let enum_values =
   [
     J.E00; J.E01; J.E02; J.E03; J.E04; J.E05; J.E06; J.E07;
@@ -88,6 +97,22 @@ let role_values =
     J.Guest;
   ]
 
+let server_config_values =
+  [
+    { J.host = js "localhost"; port = nat_of_int 8080; use_ssl = J.False };
+    { J.host = js "example.org"; port = nat_of_int 443; use_ssl = J.True };
+  ]
+
+let instruction_values =
+  [
+    J.INop;
+    J.IPush (nat_of_int 1);
+    J.IPop;
+    J.ILoad (nat_of_int 2);
+    J.IStore (nat_of_int 3);
+    J.IHalt;
+  ]
+
 let tree_values =
   [
     J.BinLeaf;
@@ -98,14 +123,14 @@ let tree_values =
         J.BinNode (J.BinLeaf, nat_of_int 4, J.BinLeaf) );
   ]
 
-let bench name f =
-  let iterations = try int_of_string (Sys.getenv "JSONIFIABLE_SUITE_ITERS") with _ -> 20_000 in
+let bench csv run iterations name f =
   let start = Sys.time () in
   for _ = 1 to iterations do
     f ()
   done;
   let elapsed = Sys.time () -. start in
-  Printf.printf "BENCH %s %.6f\n%!" name elapsed
+  Printf.printf "BENCH %s %.6f\n%!" name elapsed;
+  Printf.fprintf csv "%s,%d,%.6f\n%!" name run elapsed
 
 let roundtrip to_json from_json values () =
   List.iter
@@ -115,19 +140,40 @@ let roundtrip to_json from_json values () =
     values
 
 let () =
+  let runs = try int_of_string (Sys.getenv "JSONIFIABLE_EXTRACTION_RUNS") with _ -> 10 in
+  let iterations = try int_of_string (Sys.getenv "JSONIFIABLE_SUITE_ITERS") with _ -> 20_000 in
+  let csv = open_out "extraction_bench.csv" in
   let generated_enum = J.enum_256_Jsonifiable in
   let handwritten_enum = J.enum_256_Jsonifiable' in
   let generated_point = J.point2D_Jsonifiable nat_jsonifiable in
   let generated_role = J.userRole_Jsonifiable nat_jsonifiable string_jsonifiable in
+  let generated_server_config = J.serverConfig_Jsonifiable string_jsonifiable nat_jsonifiable bool_jsonifiable in
+  let generated_instruction = J.instruction_Jsonifiable nat_jsonifiable in
   let generated_tree = J.binTree_Jsonifiable nat_jsonifiable in
   let handwritten_point = J.point2D_Jsonifiable' nat_jsonifiable in
   let handwritten_role = J.userRole_Jsonifiable' nat_jsonifiable string_jsonifiable in
+  let handwritten_server_config = J.serverConfig_Jsonifiable' string_jsonifiable nat_jsonifiable bool_jsonifiable in
+  let handwritten_instruction = J.instruction_Jsonifiable' nat_jsonifiable in
   let handwritten_tree = J.binTree_Jsonifiable' nat_jsonifiable in
-  bench "enum256_generated" (roundtrip generated_enum.J.to_JSON generated_enum.J.from_JSON enum_values);
-  bench "enum256_handwritten" (roundtrip handwritten_enum.J.to_JSON handwritten_enum.J.from_JSON enum_values);
-  bench "point2d_generated" (roundtrip generated_point.J.to_JSON generated_point.J.from_JSON point_values);
-  bench "point2d_handwritten" (roundtrip handwritten_point.J.to_JSON handwritten_point.J.from_JSON point_values);
-  bench "userrole_generated" (roundtrip generated_role.J.to_JSON generated_role.J.from_JSON role_values);
-  bench "userrole_handwritten" (roundtrip handwritten_role.J.to_JSON handwritten_role.J.from_JSON role_values);
-  bench "bintree_generated" (roundtrip generated_tree.J.to_JSON generated_tree.J.from_JSON tree_values);
-  bench "bintree_handwritten" (roundtrip handwritten_tree.J.to_JSON handwritten_tree.J.from_JSON tree_values)
+  Printf.fprintf csv "benchmark,run,seconds\n";
+  for run = 1 to runs do
+    Printf.printf "Running harness_suite.exe... run %d/%d\n%!" run runs;
+    bench csv run iterations "enum256_generated" (roundtrip generated_enum.J.to_JSON generated_enum.J.from_JSON enum_values);
+    bench csv run iterations "enum256_handwritten" (roundtrip handwritten_enum.J.to_JSON handwritten_enum.J.from_JSON enum_values);
+    bench csv run iterations "point2d_generated" (roundtrip generated_point.J.to_JSON generated_point.J.from_JSON point_values);
+    bench csv run iterations "point2d_handwritten" (roundtrip handwritten_point.J.to_JSON handwritten_point.J.from_JSON point_values);
+    bench csv run iterations "userrole_generated" (roundtrip generated_role.J.to_JSON generated_role.J.from_JSON role_values);
+    bench csv run iterations "userrole_handwritten" (roundtrip handwritten_role.J.to_JSON handwritten_role.J.from_JSON role_values);
+    bench csv run iterations "serverconfig_generated"
+      (roundtrip generated_server_config.J.to_JSON generated_server_config.J.from_JSON server_config_values);
+    bench csv run iterations "serverconfig_handwritten"
+      (roundtrip handwritten_server_config.J.to_JSON handwritten_server_config.J.from_JSON server_config_values);
+    bench csv run iterations "instruction_generated"
+      (roundtrip generated_instruction.J.to_JSON generated_instruction.J.from_JSON instruction_values);
+    bench csv run iterations "instruction_handwritten"
+      (roundtrip handwritten_instruction.J.to_JSON handwritten_instruction.J.from_JSON instruction_values);
+    bench csv run iterations "bintree_generated" (roundtrip generated_tree.J.to_JSON generated_tree.J.from_JSON tree_values);
+    bench csv run iterations "bintree_handwritten" (roundtrip handwritten_tree.J.to_JSON handwritten_tree.J.from_JSON tree_values)
+  done;
+  close_out csv;
+  close_out (open_out "benched.stamp")

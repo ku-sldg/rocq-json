@@ -285,8 +285,8 @@ The extraction benchmark compares generated definitions against handwritten
 Rocq definitions after both have been extracted to OCaml.  This keeps the
 comparison in the same source language and extraction pipeline.  The benchmark
 covers several shapes: a 256-constructor enumeration, a tuple-like constructor,
-a mixed sum with both nullary and field-bearing constructors, and a recursive
-binary tree.  Each row reports \texttt{JSONIFIABLE\_EXTRACTION\_RUNS} samples,
+a flat record, two mixed sums with nullary and field-bearing constructors, and a
+recursive binary tree.  Each row reports \texttt{JSONIFIABLE\_EXTRACTION\_RUNS} samples,
 which defaults to 10.  The enum benchmark serializes and deserializes every
 constructor; the other benchmarks run many iterations over representative
 values.  These benchmarks are still small, but they exercise different

@@ -18,7 +18,6 @@
 (rule
  (targets benched.stamp extraction_bench.csv)
  (deps
-  harness_suite.exe
-  (:bench bench_time.sh))
+  harness_suite.exe)
  (action
-  (run %{bench})))
+  (run ./harness_suite.exe)))

@@ -151,7 +151,35 @@ def extraction_table_rows(rows: list[dict[str, str]]) -> list[str]:
     for row in rows:
         by_name.setdefault(row["benchmark"], []).append(float(row["seconds"]))
     out: list[str] = []
-    for name in sorted(by_name):
+    preferred_bases = ["enum256", "point2d", "userrole", "serverconfig", "instruction", "bintree"]
+    all_bases = {name.rsplit("_", 1)[0] for name in by_name}
+    bases = preferred_bases + sorted(all_bases.difference(preferred_bases))
+    first_group = True
+    for base in bases:
+        names = [f"{base}_generated", f"{base}_handwritten"]
+        names.extend(sorted(name for name in by_name if name.startswith(f"{base}_") and name not in names))
+        present_names = [name for name in names if name in by_name]
+        if not present_names:
+            continue
+        if not first_group:
+            out.append(r"\midrule")
+        first_group = False
+        for name in present_names:
+            values = by_name[name]
+            out.append(
+                " & ".join(
+                    [
+                        latex_escape(name),
+                        str(len(values)),
+                        fmt_extraction_seconds(statistics.mean(values)),
+                        fmt_extraction_seconds(statistics.median(values)),
+                        fmt_extraction_seconds(min(values)),
+                        fmt_extraction_seconds(max(values)),
+                    ]
+                )
+                + r" \\"
+            )
+    for name in sorted(name for name in by_name if name.rsplit("_", 1)[0] not in bases):
         values = by_name[name]
         out.append(
             " & ".join(
