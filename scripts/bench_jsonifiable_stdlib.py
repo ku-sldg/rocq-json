@@ -51,6 +51,10 @@ FAILURE_CATEGORY_NOTES = {
         "expected-current-limitation",
         "The declaration falls outside the first-order data fragment handled by the generator, commonly because of subset/proof fields, SProp, aliases such as Ensemble, or unsupported dependent structure.",
     ),
+    "proof-field-not-supported": (
+        "expected-current-limitation",
+        "At least one constructor has a field whose type lives in Prop or SProp. The current Jsonifiable contract round-trips computational data and does not erase or reconstruct proofs.",
+    ),
     "record-generation-not-supported": (
         "expected-current-limitation",
         "The record has fields that are not plain serializable data, such as proof fields, function fields, Type-valued fields, or dependent fields.",
@@ -543,6 +547,8 @@ def classify_failure(candidate: Candidate, output: str, status: str) -> str:
         return "universe-polymorphism-not-supported"
     if "unsupported nested recursive occurrence" in text:
         return "unsupported-nested-recursion"
+    if "proof/sprop constructor fields are not supported" in text:
+        return "proof-field-not-supported"
     if "canonical_jsonification proof could not be closed" in text or "proof incomplete" in text:
         return "proof-not-closed"
     if "build-to-json-term failed" in text:

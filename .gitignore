@@ -46,3 +46,5 @@ time-of-build-pretty.log
 
 # dune related files
 _build/
+
+docs/

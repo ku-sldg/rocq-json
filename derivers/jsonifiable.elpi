@@ -112,6 +112,11 @@ type-head-name (global (indt GR)) Name :- !, coq.gref->id (indt GR) Name.
 type-head-name (app [global (indt GR) | _]) Name :- !, coq.gref->id (indt GR) Name.
 type-head-name _ "unknown type constructor".
 
+pred proof-like-type i:term.
+proof-like-type Ty :-
+  coq.typecheck-ty Ty Sort ok,
+  (Sort == prop ; Sort == sprop).
+
 % ============================================================================
 % Structural view of an inductive/record declaration.
 %
@@ -123,6 +128,7 @@ kind json-arg-class type.
 type arg-param term -> json-arg-class.
 type arg-external term -> json-arg-class.
 type arg-self json-arg-class.
+type arg-proof string -> json-arg-class.
 type arg-nested-supported string -> json-arg-class.
 type arg-nested-unsupported string -> json-arg-class.
 
@@ -154,6 +160,9 @@ supported-recursive-shape Ind (app [global (indt ProdIndt), A, B]) :-
   (type-contains-ind Ind A ; type-contains-ind Ind B).
 
 func classify-json-arg inductive, list term, term -> json-arg-class.
+classify-json-arg _Ind _Params Ty (arg-proof HeadName) :-
+  proof-like-type Ty, !,
+  HeadName is {type-head-name Ty}.
 classify-json-arg _Ind Params Ty (arg-param Ty) :- std.mem Params Ty, !.
 classify-json-arg Ind _Params Ty arg-self :- is-self-reference Ind Ty, !.
 classify-json-arg Ind _Params Ty (arg-nested-supported HeadName) :-
@@ -360,6 +369,25 @@ func interleave list term, list term -> list term.
 interleave [] [] [].
 interleave [A|As] [B|Bs] [A, B | Rest] :- interleave As Bs Rest.
 
+pred jsonifiable-param-sort i:term.
+jsonifiable-param-sort Ty :-
+  coq.sort? Ty,
+  Ty = sort (typ _).
+
+func lookup-param-tc term, list (pair term term) -> option term.
+lookup-param-tc _ [] none.
+lookup-param-tc Param [pr Param TC|_] (some TC) :- !.
+lookup-param-tc Param [_|Rest] R :- lookup-param-tc Param Rest R.
+
+func param-app-args list term, list (pair term term) -> list term.
+param-app-args [] _ [].
+param-app-args [P|Ps] ParamTCs Args :-
+  Rest = {param-app-args Ps ParamTCs},
+  Opt = {lookup-param-tc P ParamTCs},
+  if (Opt = some TC)
+    (Args = [P, TC | Rest])
+    (Args = [P | Rest]).
+
 % ============================================================================
 % make-holes: generate a list of N `hole` terms (for coq.elaborate-skeleton
 % to fill with the inductive's type parameters).
@@ -522,6 +550,11 @@ build-named-obj-ctor KName ArgNames ArgJsons Body :-
 % Build list of `@to_JSON _ _ Vi` skeletons for non-recursive types.
 func build-to-json-args list term, list json-arg-view -> list term.
 build-to-json-args [] [] [].
+build-to-json-args [_V|_Vs] [arg-view _ _ (arg-proof HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    HeadName.
 build-to-json-args [V|Vs] [_Arg|Args] [{{ @to_JSON _ _ lp:V }}|Rs] :-
   build-to-json-args Vs Args Rs.
 
@@ -534,6 +567,11 @@ build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ _VTy arg-self|Args] [app [
 build-to-json-args-rec Ind SelfRef [V|Vs] [arg-view _ VTy (arg-nested-supported _)|Args] [JsonV|Rs] :- !,
   build-nested-to-json-arg Ind SelfRef V VTy JsonV,
   build-to-json-args-rec Ind SelfRef Vs Args Rs.
+build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view _ _ (arg-proof HeadName)|_Args] _ :-
+  !,
+  coq.error
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    HeadName.
 build-to-json-args-rec _Ind _SelfRef [_V|_Vs] [arg-view _ _VTy (arg-nested-unsupported HeadName)|_Args] _ :-
   !,
   coq.error
@@ -1201,6 +1239,12 @@ build-ctor-body-kvs _Ind _Self (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-nested-
      ^ HeadName
      ^ ". Supported recursive containers are list, prod, and option.").
 
+build-ctor-body-kvs _Ind _Self (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-proof HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+  !,
+  coq.error
+    "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
+    HeadName.
+
 % Non-self arg: decode with from_JSON
 build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   str-ty StrTy,
@@ -1536,13 +1580,15 @@ build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
 %     recurse, then wrap the result in fun/prod binders.
 %
 % RevTPs:  accumulated type-param terms, reversed (gets std.rev'd at base case)
-% RevTCPs: accumulated TC-instance terms, reversed
+% RevTCPs: accumulated (parameter, TC-instance) pairs for Set/Type parameters, reversed.
+% Non-sort parameters are still applied to the generated definitions, but they
+% do not get Jsonifiable dictionaries.
 % ============================================================================
 
 % build-fun-wrapped-skeletons: produces to_json and from_json skeletons
 % wrapped in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
 pred build-fun-wrapped-skeletons
-  i:inductive, i:int, i:term, i:list term, i:list term, o:term, o:term.
+  i:inductive, i:int, i:term, i:list term, i:list (pair term term), o:term, o:term.
 
 % Record base case: flat JSON_Object with field names, abstract field Jsonifiable instances.
 build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
@@ -1563,17 +1609,26 @@ build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :- !,
 
 build-fun-wrapped-skeletons Ind N (prod PName PTy RestArity) RevTPs RevTCPs TJSkel FJSkel :-
   N > 0, N1 is N - 1,
+  jsonifiable-param-sort PTy, !,
   @pi-decl PName PTy A\
   @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
-    build-fun-wrapped-skeletons Ind N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+    build-fun-wrapped-skeletons Ind N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
       (TJInner A JA) (FJInner A JA),
   TJSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ TJInner a ja)),
   FJSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ FJInner a ja)).
 
+build-fun-wrapped-skeletons Ind N (prod PName PTy RestArity) RevTPs RevTCPs TJSkel FJSkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+    build-fun-wrapped-skeletons Ind N1 (RestArity A) [A|RevTPs] RevTCPs
+      (TJInner A) (FJInner A),
+  TJSkel = fun PName PTy (a\ TJInner a),
+  FJSkel = fun PName PTy (a\ FJInner a).
+
 % build-prod-wrapped-proof-type: builds the canonical-roundtrip proof TYPE
 % (all universal quantifiers, including over params), given already-registered TJC/FJC.
 pred build-prod-wrapped-proof-type
-  i:inductive, i:constant, i:constant, i:int, i:term, i:list term, i:list term, o:term.
+  i:inductive, i:constant, i:constant, i:int, i:term, i:list term, i:list (pair term term), o:term.
 
 % Record base case: also wrap with {Ji : Jsonifiable Ti} for each concrete field type.
 % This keeps from_JSON/to_JSON abstract in the proof body so rewrite canonical_jsonification works.
@@ -1594,16 +1649,24 @@ build-prod-wrapped-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
 
 build-prod-wrapped-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
   N > 0, N1 is N - 1,
+  jsonifiable-param-sort PTy, !,
   @pi-decl PName PTy A\
   @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
-    build-prod-wrapped-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+    build-prod-wrapped-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
       (InnerTy A JA),
   ProofTySkel = prod PName PTy (a\ prod `JS` {{ Jsonifiable lp:a }} (ja\ InnerTy a ja)).
+
+build-prod-wrapped-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+    build-prod-wrapped-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] RevTCPs
+      (InnerTy A),
+  ProofTySkel = prod PName PTy (a\ InnerTy a).
 
 % Build proof type inner for records: wraps with {Ji : Jsonifiable Ti} for concrete field types,
 % then builds the core forall v, FJC ... v = res v.
 pred build-record-proof-type-inner
-  i:inductive, i:constant, i:constant, i:list term, i:list term, i:list term, i:list term, o:term.
+  i:inductive, i:constant, i:constant, i:list term, i:list (pair term term), i:list term, i:list term, o:term.
 
 build-record-proof-type-inner Ind TJC FJC TPs TCPs [] RevFInsts ProofTySkel :-
   std.rev RevFInsts FInsts,
@@ -1611,7 +1674,7 @@ build-record-proof-type-inner Ind TJC FJC TPs TCPs [] RevFInsts ProofTySkel :-
   str-ty StrTy,
   result-ty IndTy StrTy ResultTy,
   coq.locate "res" (indc ResC),
-  interleave TPs TCPs TypeParams,
+  TypeParams = {param-app-args TPs TCPs},
   std.append TypeParams FInsts AllParams,
   TJApp = app [global (const TJC) | AllParams],
   FJApp = app [global (const FJC) | AllParams],
@@ -1657,7 +1720,7 @@ pure-enum-proof-term Ind TJC FJC (fun `v` IndTy (v\ Body v)) :-
 % in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
 pred build-fun-wrapped-instance
   i:inductive, i:constant, i:constant, i:constant,
-  i:int, i:term, i:list term, i:list term, o:term.
+  i:int, i:term, i:list term, i:list (pair term term), o:term.
 
 % Record base case: also wrap with {Ji : Jsonifiable Ti} for each concrete field type.
 build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :-
@@ -1677,21 +1740,29 @@ build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
 
 build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
   N > 0, N1 is N - 1,
+  jsonifiable-param-sort PTy, !,
   @pi-decl PName PTy A\
   @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
-    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] [JA|RevTCPs]
+    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
       (InnerInst A JA),
   InstSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ InnerInst a ja)).
+
+build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] RevTCPs
+      (InnerInst A),
+  InstSkel = fun PName PTy (a\ InnerInst a).
 
 % Build instance inner for records: wraps with {Ji : Jsonifiable Ti} for concrete field types.
 pred build-record-instance-inner
   i:inductive, i:constant, i:constant, i:constant,
-  i:list term, i:list term, i:list term, i:list term, o:term.
+  i:list term, i:list (pair term term), i:list term, i:list term, o:term.
 
 build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [] RevFInsts InstSkel :-
   std.rev RevFInsts FInsts,
   coq.mk-app (global (indt Ind)) TPs IndTy,
-  interleave TPs TCPs TypeParams,
+  TypeParams = {param-app-args TPs TCPs},
   std.append TypeParams FInsts AllParams,
   coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
   InstSkel = app [ global (indc BuildGR), IndTy

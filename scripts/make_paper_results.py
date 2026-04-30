@@ -20,6 +20,8 @@ CATEGORY_RATIONALES = {
     "indexed-family-not-supported": "The declaration is a family indexed by values, not a plain data type after parameters.",
     "to-json-generation-not-supported": "Generation rejected the declaration; these are treated as current limitations requiring inspection.",
     "to-json-elaboration-failed": "Rocq rejected the generated term; these are possible deriver gaps or unsupported dependent shapes.",
+    "proof-field-not-supported": "A constructor field lives in Prop or SProp, so the ordinary data round-trip contract would require proof erasure or proof reconstruction.",
+    "from-json-elaboration-failed": "Rocq rejected the generated decoder; these are remaining deriver gaps requiring inspection.",
     "record-generation-not-supported": "The record contains fields without an ordinary data representation, such as proofs, functions, Type fields, or dependent fields.",
     "scanner-or-logical-path": "The benchmark scanner found a source declaration whose guessed logical path is not directly derivable.",
     "universe-polymorphism-not-supported": "The declaration uses universe behavior outside the current monomorphic deriver path.",
