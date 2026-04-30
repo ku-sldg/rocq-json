@@ -1188,10 +1188,10 @@ build-nested-from-json-deser _Ind _SelfRef Ty Result :-
 % value from each pair.  Self-reference args call SelfRef; others call from_JSON.
 % ============================================================================
 
-func build-ctor-body-kvs inductive, term, json-ctor-view, term, term, list term -> term.
+func build-ctor-body-kvs inductive, list term, term, term, json-ctor-view, term, term, list term -> term.
 
 % Base case: 0 remaining args → match nil => res K, cons => err too many
-build-ctor-body-kvs _Ind _Self CtorView Kvs0 ErrTerm AccRev Body :-
+build-ctor-body-kvs _Ind Params _Self ResultTy CtorView Kvs0 ErrTerm AccRev Body :-
   [] = {ctor-view-arg-views CtorView}, !,
   str-ty StrTy,
   json-ty JSONTy,
@@ -1199,18 +1199,16 @@ build-ctor-body-kvs _Ind _Self CtorView Kvs0 ErrTerm AccRev Body :-
   list-ty PairTy KvsTy,
   std.rev AccRev Acc,
   K = {ctor-view-constructor CtorView},
-  KParNo = {ctor-view-param-count CtorView},
-  make-holes KParNo KHoles,
-  std.append KHoles Acc KAllArgs,
+  std.append Params Acc KAllArgs,
   coq.mk-app (global (indc K)) KAllArgs KApp,
   coq.locate "res" (indc ResC),
-  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+  Body = match Kvs0 (fun `_` KvsTy (_\ ResultTy))
     [ app [global (indc ResC), _, _, KApp]          % nil  → res K
     , fun `_` PairTy (_\ fun `_` KvsTy (_\ ErrTerm)) % cons → err too many
     ].
 
 % Arg containing Ind (self-reference or nested): use nested deserializer
-build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
+build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   (Class = arg-self ; Class = arg-nested-supported _), !,
   str-ty StrTy,
   json-ty JSONTy,
@@ -1219,50 +1217,50 @@ build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [ar
   coq.locate "bind" (const BindC),
   build-nested-from-json-deser Ind Self ArgTy NestedDeser,
   RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
-  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+  Body = match Kvs0 (fun `_` KvsTy (_\ ResultTy))
     [ ErrTerm
     , fun `kv` PairTy (kv\
         fun `kvr` KvsTy (kvr\
-          match kv (fun `_` PairTy (_\ {{Result _ string}}))
+          match kv (fun `_` PairTy (_\ ResultTy))
             [ fun `_` StrTy (_\ fun `val` JSONTy (val\
                 app [global (const BindC), _, _, _,
                      app [NestedDeser, val],
                      fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Self RestCtorView kvr ErrTerm [dv|AccRev]})]))
+                       {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]))
             ]))
     ].
 
-build-ctor-body-kvs _Ind _Self (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-nested-unsupported HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-nested-unsupported HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
   !,
   coq.error
     ("derive.jsonifiable: unsupported nested recursive occurrence under "
      ^ HeadName
      ^ ". Supported recursive containers are list, prod, and option.").
 
-build-ctor-body-kvs _Ind _Self (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-proof HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
+build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-view _ _ (arg-proof HeadName)|_]) _Kvs0 _ErrTerm _AccRev _Body :-
   !,
   coq.error
     "derive.jsonifiable: proof/SProp constructor fields are not supported by Jsonifiable. Field type head:"
     HeadName.
 
 % Non-self arg: decode with from_JSON
-build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
+build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
   coq.locate "bind" (const BindC),
   RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
-  Body = match Kvs0 (fun `_` KvsTy (_\ {{Result _ string}}))
+  Body = match Kvs0 (fun `_` KvsTy (_\ ResultTy))
     [ ErrTerm
     , fun `kv` PairTy (kv\
         fun `kvr` KvsTy (kvr\
-          match kv (fun `_` PairTy (_\ {{Result _ string}}))
+          match kv (fun `_` PairTy (_\ ResultTy))
             [ fun `_` StrTy (_\ fun `val` JSONTy (val\
                 app [global (const BindC), _, _, _,
                      {{ @from_JSON _ _ lp:val }},
                      fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Self RestCtorView kvr ErrTerm [dv|AccRev]})]))
+                       {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]))
             ]))
     ].
 
@@ -1271,8 +1269,8 @@ build-ctor-body-kvs Ind Self (ctor-view K KParNo KName Arity ArgTys ArgNames [ar
 % Scrutinizes `tag : string` and for matching ctor decodes `kvs`.
 % ============================================================================
 
-pred build-obj-dispatch i:inductive, i:list term, i:term, i:list json-ctor-view, i:term, i:term, i:term, o:term.
-build-obj-dispatch Ind Params Self CtorViews Tag Kvs Default Body :-
+pred build-obj-dispatch i:inductive, i:list term, i:term, i:term, i:list json-ctor-view, i:term, i:term, i:term, o:term.
+build-obj-dispatch Ind Params Self ResultTy CtorViews Tag Kvs Default Body :-
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
   nat-ty NatTy,
@@ -1281,20 +1279,20 @@ build-obj-dispatch Ind Params Self CtorViews Tag Kvs Default Body :-
   indexed-ctor-name-pairs CtorViews 0 IndexPairs,
   build-string-index-dispatch Tag IndexPairs IndexTerm,
   @pi-decl `idx` NatTy IDX\
-    build-obj-index-dispatch Ind Params Self CtorViews IDX Kvs Default ErrTerm (SomeBody IDX),
-  Body = match IndexTerm (fun `_` OptionNatTy (_\ {{Result _ string}}))
+    build-obj-index-dispatch Ind Params Self ResultTy CtorViews IDX Kvs Default ErrTerm (SomeBody IDX),
+  Body = match IndexTerm (fun `_` OptionNatTy (_\ ResultTy))
     [ fun `idx` NatTy (idx\ SomeBody idx)
     , Default
     ].
 
-func build-obj-index-dispatch inductive, list term, term, list json-ctor-view, term, term, term, term -> term.
-build-obj-index-dispatch _Ind _Params _Self [] _Idx _Kvs Default _ErrTerm Default :- !.
-build-obj-index-dispatch Ind Params Self [CtorView|CtorViews] Idx Kvs Default ErrTerm Body :-
+func build-obj-index-dispatch inductive, list term, term, term, list json-ctor-view, term, term, term, term -> term.
+build-obj-index-dispatch _Ind _Params _Self _ResultTy [] _Idx _Kvs Default _ErrTerm Default :- !.
+build-obj-index-dispatch Ind Params Self ResultTy [CtorView|CtorViews] Idx Kvs Default ErrTerm Body :-
   nat-ty NatTy,
-  build-ctor-body-kvs Ind Self CtorView Kvs ErrTerm [] ArmBody,
+  build-ctor-body-kvs Ind Params Self ResultTy CtorView Kvs ErrTerm [] ArmBody,
   @pi-decl `idx_tail` NatTy IDXTail\
-    build-obj-index-dispatch Ind Params Self CtorViews IDXTail Kvs Default ErrTerm (RestBody IDXTail),
-  Body = match Idx (fun `_` NatTy (_\ {{Result _ string}}))
+    build-obj-index-dispatch Ind Params Self ResultTy CtorViews IDXTail Kvs Default ErrTerm (RestBody IDXTail),
+  Body = match Idx (fun `_` NatTy (_\ ResultTy))
     [ ArmBody
     , fun `idx_tail` NatTy (idx_tail\ RestBody idx_tail)
     ].
@@ -1314,6 +1312,8 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
   list-ty JSONTy ListJSONTy,
   pair-ty StrTy JSONTy PairStrJsonTy,
   list-ty PairStrJsonTy MapStrJsonTy,
+  coq.mk-app (global (indt Ind)) Params IndTy,
+  result-ty IndTy StrTy ResultTy,
   coq.locate "err" (indc ErrC),
   coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
   coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
@@ -1333,7 +1333,7 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
   % Inner object kvs dispatch: ObjDispF tag kvs = trie tag -> constructor index.
   @pi-decl `tag` StrTy TAG\
   @pi-decl `kvs` MapStrJsonTy KVS\
-    build-obj-dispatch Ind Params SelfRef WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
+    build-obj-dispatch Ind Params SelfRef ResultTy WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
 
   % Match inner JSON_Object value: must be JSON_Object kvs
   @pi-decl `tag2` StrTy TAG2\
@@ -1558,13 +1558,12 @@ build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
   @pi-decl `js` JSONTy JS\
-  @pi-decl `kvs` MapStrJsonTy KVS\
-    % Positional decode: match kvs elements by position (keys are ignored).
-    % SelfRef is dummy for non-recursive records; recursive fields are classified
-    % in the constructor view and handled by build-ctor-body-kvs.
-    build-ctor-body-kvs Ind (global (indt Ind)) CtorView KVS ErrUnrec [] (KvsBody KVS),
-  R JS = match JS (fun `_` JSONTy (_\ {{Result _ string}}))
-    [ fun `kvs` MapStrJsonTy (kvs\ KvsBody kvs)
+  R JS = match JS (fun `_` JSONTy (_\ ResultTy))
+    [ fun `kvs` MapStrJsonTy (kvs\
+        % Positional decode: match kvs elements by position (keys are ignored).
+        % SelfRef is dummy for non-recursive records; recursive fields are
+        % classified in the constructor view and handled by build-ctor-body-kvs.
+        {build-ctor-body-kvs Ind Params (global (indt Ind)) ResultTy CtorView kvs ErrUnrec []})
     , fun `_` ListJSONTy   (_\ ErrNoCons)
     , fun `_` StrTy        (_\ ErrNoCons)
     , fun `_` NatTy        (_\ ErrNoCons)
