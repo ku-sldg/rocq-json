@@ -33,18 +33,17 @@
   Rocq developments often need executable serializers for data exchange, testing,
   and extracted applications, but hand-written serializers are tedious and easy to
   disconnect from their intended inverse.  We present an ELPI-based deriver for
-  \texttt{rocq-json} that automatically generates \texttt{Jsonifiable} instances
+  JSON that automatically generates \texttt{Jsonifiable} instances
   for a practical fragment of Rocq inductive and record types.  Each generated
   instance contains an encoder, a decoder, and a proof that decoding the encoded
-  value succeeds with the original value.  The implementation is not intended as a
-  new theory of generic programming, nor does the underlying JSON library aim to
-  be an RFC-complete JSON implementation.  Instead, the contribution is a
-  performance-conscious and extraction-friendly engineering pattern for mapping
-  Rocq data to a JSON-like interchange format while preserving an explicit
-  invertibility theorem.  The accompanying artifact rebuilds the tool, probes
-Corelib and Stdlib declarations, classifies unsupported cases, compares
-generated and handwritten Rocq definitions after extraction, and
-regenerates the result tables used by this paper.
+  value succeeds with the original value. The contribution is a
+  performance-conscious and easily usable engineering tool for mapping
+  Rocq data to a JSON interchange format, while preserving an explicit
+  correctness theorem.
+  % The accompanying artifact rebuilds the tool, probes
+  % Corelib and Stdlib declarations, classifies unsupported cases, compares
+  % generated and handwritten Rocq definitions after extraction, and
+  % regenerates the result tables used by this paper.
 \end{abstract}
 
 \section{Introduction}
