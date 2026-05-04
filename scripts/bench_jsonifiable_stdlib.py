@@ -24,13 +24,14 @@ from typing import Iterable
 
 
 DECL_RE = re.compile(
-    r"(?<!\bExtract\s)\b(?:Polymorphic\s+|Monomorphic\s+|Cumulative\s+|Private\s+)*"
+    r"^\s*(?:#\[[^\]]*\]\s*)*(?<!\bExtract\s)(?:Polymorphic\s+|Monomorphic\s+|Cumulative\s+|Private\s+)*"
     r"(Inductive|CoInductive|Variant|Record|Structure)\s+"
     r"([A-Za-z_][A-Za-z0-9_']*)"
 )
 WITH_RE = re.compile(r"^\s*with\s+([A-Za-z_][A-Za-z0-9_']*)")
+MODULE_TYPE_RE = re.compile(r"^\s*Module\s+Type\s+([A-Za-z_][A-Za-z0-9_']*)\b(?P<rest>.*)")
 MODULE_RE = re.compile(
-    r"^\s*Module\s+(?:(?:Export|Import)\s+)?(?!(?:Type|Include)\b)([A-Za-z_][A-Za-z0-9_']*)\b"
+    r"^\s*Module\s+(?:(?:Export|Import)\s+)?(?!(?:Type|Include)\b)([A-Za-z_][A-Za-z0-9_']*)\b(?P<rest>.*)"
 )
 END_RE = re.compile(r"^\s*End\s+([A-Za-z_][A-Za-z0-9_']*)\s*\.")
 TIME_RE = re.compile(
@@ -105,6 +106,17 @@ FAILURE_CATEGORY_NOTES = {
     ),
 }
 
+SKIP_CATEGORY_NOTES = {
+    "parameterized-module-scope": (
+        "not-direct-deriver-input",
+        "The declaration is inside a parameterized module/functor body. It is not a closed global reference until the functor is instantiated, so the benchmark records it but does not pass the uninstantiated path to the deriver.",
+    ),
+    "module-type-scope": (
+        "not-direct-deriver-input",
+        "The declaration is inside a module type/signature. It describes an interface component rather than a closed inductive declaration available for deriving.",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -117,6 +129,7 @@ class Candidate:
     has_non_sort_parameter: bool
     has_untyped_parameter: bool
     record_data_issue: str
+    scope_issue: str
     import_module: str
     module: str
     name: str
@@ -126,6 +139,13 @@ class Candidate:
     @property
     def logical_name(self) -> str:
         return f"{self.module}.{self.name}"
+
+
+@dataclass(frozen=True)
+class ModuleScope:
+    name: str
+    closed_reference_scope: bool
+    issue: str
 
 
 @dataclass
@@ -404,6 +424,26 @@ def record_data_issue(kind: str, name: str, snippet: str) -> str:
     return ""
 
 
+def module_rest_has_parameters(rest: str) -> bool:
+    before_assignment = rest.split(":=", 1)[0]
+    before_terminator = before_assignment.split(".", 1)[0]
+    return "(" in before_terminator
+
+
+def module_line_is_alias(rest: str) -> bool:
+    stripped = rest.lstrip()
+    if stripped.startswith(":="):
+        return True
+    return ":=" in rest and "with Module" not in rest
+
+
+def scope_issue(stack: list[ModuleScope]) -> str:
+    for scope in stack:
+        if not scope.closed_reference_scope:
+            return scope.issue
+    return ""
+
+
 def make_candidate(
     root_name: str,
     kind: str,
@@ -413,6 +453,7 @@ def make_candidate(
     source: str,
     line_no: int,
     snippet: str,
+    scope_issue: str = "",
 ) -> Candidate:
     arity = declaration_arity(snippet)
     sort = declaration_target_sort(snippet)
@@ -426,6 +467,7 @@ def make_candidate(
         declaration_has_non_sort_parameter(snippet),
         declaration_has_untyped_parameter(kind, name, snippet),
         record_data_issue(kind, name, snippet),
+        scope_issue,
         import_module,
         module,
         name,
@@ -440,7 +482,7 @@ def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
     base_module = source_to_module(root_name, root, path)
     import_module = base_module
     source = str(path)
-    stack: list[str] = []
+    stack: list[ModuleScope] = []
     candidates: list[Candidate] = []
     active_inductive_decl = False
     lines = text.splitlines()
@@ -450,26 +492,65 @@ def scan_file(root_name: str, root: Path, path: Path) -> list[Candidate]:
         end_match = END_RE.match(line)
         if end_match and stack:
             ended = end_match.group(1)
-            if stack[-1] == ended:
+            if stack[-1].name == ended:
                 stack.pop()
-            elif ended in stack:
-                stack = stack[: stack.index(ended)]
+            else:
+                stack_names = [scope.name for scope in stack]
+                if ended in stack_names:
+                    stack = stack[: stack_names.index(ended)]
+
+        module_type_match = MODULE_TYPE_RE.match(line)
+        if module_type_match and not module_line_is_alias(module_type_match.group("rest")):
+            stack.append(ModuleScope(module_type_match.group(1), False, "module-type-scope"))
+            continue
 
         module_match = MODULE_RE.match(line)
-        if module_match and ":=" not in line:
-            stack.append(module_match.group(1))
+        if module_match and not module_line_is_alias(module_match.group("rest")):
+            has_parameters = module_rest_has_parameters(module_match.group("rest"))
+            stack.append(
+                ModuleScope(
+                    module_match.group(1),
+                    not has_parameters,
+                    "parameterized-module-scope" if has_parameters else "",
+                )
+            )
 
-        module = ".".join([base_module, *stack])
+        module = ".".join([base_module, *[scope.name for scope in stack]])
+        current_scope_issue = scope_issue(stack)
         decl_matches = list(DECL_RE.finditer(line))
         for match in decl_matches:
             snippet = declaration_snippet(lines, line_index)
-            candidates.append(make_candidate(root_name, match.group(1), import_module, module, match.group(2), source, line_no, snippet))
+            candidates.append(
+                make_candidate(
+                    root_name,
+                    match.group(1),
+                    import_module,
+                    module,
+                    match.group(2),
+                    source,
+                    line_no,
+                    snippet,
+                    current_scope_issue,
+                )
+            )
         if decl_matches:
             active_inductive_decl = True
         if active_inductive_decl:
             for match in WITH_RE.finditer(line):
                 snippet = declaration_snippet(lines, line_index)
-                candidates.append(make_candidate(root_name, "with", import_module, module, match.group(1), source, line_no, snippet))
+                candidates.append(
+                    make_candidate(
+                        root_name,
+                        "with",
+                        import_module,
+                        module,
+                        match.group(1),
+                        source,
+                        line_no,
+                        snippet,
+                        current_scope_issue,
+                    )
+                )
         if active_inductive_decl and "." in line:
             active_inductive_decl = False
 
@@ -656,6 +737,7 @@ def probe_candidate(
                 f"   has non-sort parameter: {candidate.has_non_sort_parameter}",
                 f"   has untyped parameter: {candidate.has_untyped_parameter}",
                 f"   record data issue: {candidate.record_data_issue or 'none'}",
+                f"   scope issue: {candidate.scope_issue or 'none'}",
                 f"   source: {candidate.source}:{candidate.line} *)",
                 require_line(candidate),
                 derive_command(candidate),
@@ -781,7 +863,7 @@ def write_candidates_csv(path: Path, rows: Iterable[tuple[Candidate, str]]) -> N
                 writer.writerow(asdict(row) | {"logical_name": row.logical_name, "skip_reason": reason})
 
 
-def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
+def write_failure_report(path: Path, rows: list[ProbeResult], skipped: list[tuple[Candidate, str]]) -> None:
     failures = [row for row in rows if row.status != "ok"]
     lines = [
         "# Jsonifiable Stdlib/Corelib Probe Failures",
@@ -789,6 +871,35 @@ def write_failure_report(path: Path, rows: list[ProbeResult]) -> None:
         "These are probe-time failures. The benchmark artifact intentionally excludes them so one unsupported type does not stop timing for the supported subset.",
         "",
     ]
+    if not failures and not skipped:
+        lines.append("No probe failures.")
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return
+
+    if skipped:
+        skip_counts: dict[str, int] = {}
+        for _candidate, reason in skipped:
+            skip_counts[reason] = skip_counts.get(reason, 0) + 1
+        lines.extend(["## Skipped Non-Probe Declarations", ""])
+        lines.append(
+            "These declarations were found in source files but are not direct inputs to `Elpi derive.jsonifiable`, so the benchmark records them separately instead of treating them as deriver failures."
+        )
+        lines.append("")
+        for category, count in sorted(skip_counts.items(), key=lambda item: (-item[1], item[0])):
+            disposition, explanation = SKIP_CATEGORY_NOTES.get(category, ("skipped", "No explanation recorded."))
+            examples = [candidate.logical_name for candidate, reason in skipped if reason == category][:3]
+            lines.extend(
+                [
+                    f"### {category}",
+                    "",
+                    f"- count: `{count}`",
+                    f"- disposition: `{disposition}`",
+                    f"- explanation: {explanation}",
+                    f"- examples: {', '.join(f'`{example}`' for example in examples)}",
+                    "",
+                ]
+            )
+
     if not failures:
         lines.append("No probe failures.")
         path.write_text("\n".join(lines), encoding="utf-8")
@@ -889,7 +1000,11 @@ def parse_args() -> argparse.Namespace:
 
 def skip_reason(candidate: Candidate, args: argparse.Namespace) -> str | None:
     if not args.data_like_only:
+        if candidate.scope_issue:
+            return candidate.scope_issue
         return None
+    if candidate.scope_issue:
+        return candidate.scope_issue
     if candidate.target_sort == "Prop" and not args.include_prop_targets:
         return "prop-target"
     if candidate.has_prop_argument and not args.include_prop_arguments:
@@ -907,6 +1022,24 @@ def main(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     out_dir = (repo / args.out_dir).resolve() if not args.out_dir.is_absolute() else args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(out_dir / "probes", ignore_errors=True)
+    for stale_file in [
+        "discovered.json",
+        "skipped_candidates.csv",
+        "skipped_candidates.json",
+        "probe_results.csv",
+        "probe_results.json",
+        "failures.md",
+        "JsonifiableStdlibBenchmark.v",
+        "JsonifiableStdlibBenchmark.vo",
+        "JsonifiableStdlibBenchmark.vok",
+        "JsonifiableStdlibBenchmark.vos",
+        "JsonifiableStdlibBenchmark.glob",
+        "JsonifiableStdlibBenchmark.log",
+        "benchmark_timings.csv",
+        "summary.json",
+    ]:
+        (out_dir / stale_file).unlink(missing_ok=True)
 
     if not args.skip_dune_build:
         print("Building rocq-json with dune build ...", flush=True)
@@ -964,7 +1097,7 @@ def main(args: argparse.Namespace) -> int:
         skip_counts: dict[str, int] = {}
         for _candidate, reason in skipped:
             skip_counts[reason] = skip_counts.get(reason, 0) + 1
-        print(f"Skipping {len(skipped)} declarations outside the default data-like fragment: {skip_counts}.", flush=True)
+        print(f"Skipping {len(skipped)} declarations before probing: {skip_counts}.", flush=True)
 
     rocq_json_root, derivers_root = detect_build_roots(repo)
     extra_args = rocq_args(repo, rocq_json_root, derivers_root)
@@ -983,7 +1116,7 @@ def main(args: argparse.Namespace) -> int:
         json.dumps([asdict(result) for result in results], indent=2),
         encoding="utf-8",
     )
-    write_failure_report(out_dir / "failures.md", results)
+    write_failure_report(out_dir / "failures.md", results, skipped)
 
     bench_file = out_dir / "JsonifiableStdlibBenchmark.v"
     write_benchmark_file(bench_file, successes)
@@ -1012,6 +1145,7 @@ def main(args: argparse.Namespace) -> int:
                 "has_non_sort_parameter",
                 "has_untyped_parameter",
                 "record_data_issue",
+                "scope_issue",
                 "source",
                 "line",
                 "rocq_time_seconds",
@@ -1032,6 +1166,7 @@ def main(args: argparse.Namespace) -> int:
                     "has_non_sort_parameter": candidate.has_non_sort_parameter,
                     "has_untyped_parameter": candidate.has_untyped_parameter,
                     "record_data_issue": candidate.record_data_issue,
+                    "scope_issue": candidate.scope_issue,
                     "source": candidate.source,
                     "line": candidate.line,
                     "rocq_time_seconds": seconds,
