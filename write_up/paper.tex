@@ -79,7 +79,7 @@ Class Jsonifiable (A : Type) := {
 
 The deriver described here generates all three components for many ordinary
 inductive and record types.  It is implemented in \coqelpi and exposed through
-the command \texttt{Elpi derive.jsonifiable T}.  For verification-oriented
+the command \texttt{Elpi derive.jsonifiable T} \cite{Tassi:2025:ELPI}. For verification-oriented
 applications that produce JSON, the central guarantee is exactly the displayed
 one: a value that leaves the verified component through the encoder can be
 decoded back to the same Rocq value.
@@ -426,7 +426,7 @@ broader lesson is that certified derivation tools should be judged not only by
 the terms they generate, but also by the deployment boundary they secure and by
 the reproducibility of their claims about applicability and performance.
 
-\bibliographystyle{splncsnat}
+\bibliographystyle{splncs04}
 \bibliography{bib/sldg}
 
 \end{document}
