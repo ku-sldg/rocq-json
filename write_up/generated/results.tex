@@ -21,11 +21,7 @@
 \newcommand{\JsonifiableSuccessCorelib}{39}
 \newcommand{\JsonifiableSuccessStdlib}{42}
 \newcommand{\JsonifiableExtractionGeneratedRuns}{10}
-\newcommand{\JsonifiableExtractionGeneratedMean}{0.055843}
-\newcommand{\JsonifiableExtractionGeneratedMedian}{0.055783}
 \newcommand{\JsonifiableExtractionHandwrittenRuns}{10}
-\newcommand{\JsonifiableExtractionHandwrittenMean}{0.055628}
-\newcommand{\JsonifiableExtractionHandwrittenMedian}{0.055635}
 
 \newcommand{\JsonifiableFailureRows}{%
 prop-target-not-supported & 150 \\
@@ -63,22 +59,11 @@ sort-field-not-supported & 3 & Corelib.Classes.RelationClasses.Tlist & A constru
 coinductive-not-supported & 1 & Stdlib.Streams.Streams.Stream & The declaration is potentially infinite data, while the deriver targets inductive data. \\
 }
 
-\newcommand{\JsonifiableExtractionRows}{%
-enum256\_generated & 10 & 0.055843 & 0.055783 & 0.052521 & 0.059224 \\
-enum256\_handwritten & 10 & 0.055628 & 0.055635 & 0.053497 & 0.059411 \\
-\midrule
-point2d\_generated & 10 & 0.001283 & 0.001263 & 0.001122 & 0.001663 \\
-point2d\_handwritten & 10 & 0.001378 & 0.001371 & 0.001300 & 0.001454 \\
-\midrule
-userrole\_generated & 10 & 0.002316 & 0.002353 & 0.002034 & 0.002450 \\
-userrole\_handwritten & 10 & 0.003285 & 0.003339 & 0.003051 & 0.003475 \\
-\midrule
-serverconfig\_generated & 10 & 0.000749 & 0.000754 & 0.000708 & 0.000802 \\
-serverconfig\_handwritten & 10 & 0.001961 & 0.001922 & 0.001869 & 0.002109 \\
-\midrule
-instruction\_generated & 10 & 0.002213 & 0.002225 & 0.002010 & 0.002359 \\
-instruction\_handwritten & 10 & 0.003491 & 0.003402 & 0.003229 & 0.004540 \\
-\midrule
-bintree\_generated & 10 & 0.004180 & 0.004129 & 0.004043 & 0.004450 \\
-bintree\_handwritten & 10 & 0.006416 & 0.006408 & 0.006149 & 0.006721 \\
+\newcommand{\JsonifiableExtractionComparisonRows}{%
+enum256 & 55.843 & 55.628 & +0.4\% \\
+point2d & 1.282 & 1.378 & -7.0\% \\
+userrole & 2.316 & 3.285 & -29.5\% \\
+serverconfig & 0.749 & 1.960 & -61.8\% \\
+instruction & 2.213 & 3.491 & -36.6\% \\
+bintree & 4.180 & 6.416 & -34.9\% \\
 }

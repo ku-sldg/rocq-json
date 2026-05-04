@@ -11,6 +11,7 @@
   basicstyle=\ttfamily\small,
   columns=fullflexible,
   keepspaces=true,
+  breaklines=true,
   frame=single,
   xleftmargin=0.5em,
   xrightmargin=0.5em
@@ -212,20 +213,35 @@ separately rather than discarded.
 
 \begin{table}
   \centering
-  \caption{Corelib/Stdlib applicability summary.}
-  \begin{tabular}{lr}
-    \toprule
-    Metric                       & Count                        \\
-    \midrule
-    Discovered declarations      & \JsonifiableDiscovered       \\
-    Recorded, not probed         & \JsonifiableSkipped          \\
-    Probed declarations          & \JsonifiableProbed           \\
-    Successful probes            & \JsonifiableProbeSuccesses   \\
-    Probe failures               & \JsonifiableProbeFailures    \\
-    Probe timeouts               & \JsonifiableProbeTimeouts    \\
-    Timed successful derivations & \JsonifiableTimedDerivations \\
-    \bottomrule
-  \end{tabular}
+  \caption{Corelib/Stdlib applicability and failure categories.}
+  \label{tab:applicability}
+  \small
+  \begin{minipage}[t]{0.47\linewidth}
+    \centering
+    \begin{tabular}{p{0.72\linewidth}r}
+      \toprule
+      Metric                       & Count                        \\
+      \midrule
+      Discovered declarations      & \JsonifiableDiscovered       \\
+      Recorded, not probed         & \JsonifiableSkipped          \\
+      Probed declarations          & \JsonifiableProbed           \\
+      Successful probes            & \JsonifiableProbeSuccesses   \\
+      Probe failures               & \JsonifiableProbeFailures    \\
+      Probe timeouts               & \JsonifiableProbeTimeouts    \\
+      Timed successful derivations & \JsonifiableTimedDerivations \\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.47\linewidth}
+    \centering
+    \begin{tabular}{p{0.78\linewidth}r}
+      \toprule
+      Failure category & Count \\
+      \midrule
+      \JsonifiableFailureRows
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
 \end{table}
 
 The successful probes include \JsonifiableSuccessInductives{} inductives,
@@ -233,26 +249,12 @@ The successful probes include \JsonifiableSuccessInductives{} inductives,
 records or structures; \JsonifiableSuccessCorelib{} are from Corelib and
 \JsonifiableSuccessStdlib{} are from Stdlib.
 
-\begin{table}
-  \centering
-  \caption{Failure categories reported by the probe benchmark.}
-  \small
-  \begin{tabular}{p{0.68\linewidth}r}
-    \toprule
-    Category & Count \\
-    \midrule
-    \JsonifiableFailureRows
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-The category names in this table are not meant to declare every failure
-``invalid input''.  They are a triage device.  Some categories are semantic
+The category names in Table~\ref{tab:applicability} are a triage device, not a
+claim that every failure is invalid input.  Some categories are semantic
 non-targets for this version of the tool, such as propositions or coinductive
-streams.  Others are engineering limitations or possible tool failures that
-should be treated as future work.  Table~\ref{tab:failure-examples} gives one
-representative declaration for each category and the rationale used by the
-artifact.
+streams.  Others are engineering limitations or possible tool failures.
+Table~\ref{tab:failure-examples} gives one representative declaration for each
+category and the rationale used by the artifact.
 
 \begin{table}
   \centering
@@ -312,7 +314,7 @@ not hidden failures.
 \subsection{Derivation Time}
 
 The combined successful benchmark records Rocq's \texttt{Time} output for each
-derived instance.  In the generated run used for this draft, the combined
+derived instance.  In the reported run, the combined
 benchmark compiled successfully with wall-clock time
 \JsonifiableBenchmarkWallSeconds{} seconds; the sum of Rocq-reported derivation
 transactions was \JsonifiableDerivationSumSeconds{} seconds.  The mean
@@ -324,7 +326,7 @@ derivation time was \JsonifiableDerivationMeanSeconds{} seconds, the median was
 \begin{table}
   \centering
   \caption{Slowest successful derivations in the broad benchmark.}
-  \begin{tabular}{llr}
+  \begin{tabular}{l @{\hspace{0.25cm}} lr}
     \toprule
     Declaration & Kind & Seconds \\
     \midrule
@@ -336,7 +338,8 @@ derivation time was \JsonifiableDerivationMeanSeconds{} seconds, the median was
 The slowest success is \texttt{byte}, a 256-constructor Corelib enumeration.  It
 is the broad benchmark's version of the large enum stress case used while
 engineering the string decision tree.  The remaining cost is dominated by
-Rocq-side derivation and proof construction; after extraction, the corresponding
+Rocq-side derivation and proof construction.
+After extraction, the corresponding
 dispatch path is close to the handwritten Rocq baseline below.
 
 \subsection{Extracted Code Performance}
@@ -346,41 +349,46 @@ Rocq definitions after both have been extracted to OCaml.  This keeps the
 comparison in the same source language and extraction pipeline.  The benchmark
 covers several shapes: a 256-constructor enumeration, a tuple-like constructor,
 a flat record, two mixed sums with nullary and field-bearing constructors, and a
-recursive binary tree.  Each row reports \texttt{JSONIFIABLE\_EXTRACTION\_RUNS} samples,
-which defaults to 10.  The enum benchmark serializes and deserializes every
-constructor; the other benchmarks run many iterations over representative
-values.  These benchmarks are still small, but they exercise different
-generated-code paths and are more informative than a single stress case.
+recursive binary tree.  Each benchmark was run
+\JsonifiableExtractionGeneratedRuns{} times.  The enum benchmark serializes and
+deserializes every constructor; the other benchmarks run many iterations over
+representative values.
 
 \begin{table}
   \centering
   \caption{Extracted round-trip benchmarks.}
-  \begin{tabular}{lrrrrr}
+  \label{tab:extraction}
+  \begin{tabular}{lrrr}
     \toprule
-    Benchmark & Samples & Mean & Median & Min & Max \\
+    Benchmark & Generated mean (ms) & Handwritten mean (ms) & Change (\%) \\
     \midrule
-    \JsonifiableExtractionRows
+    \JsonifiableExtractionComparisonRows
     \bottomrule
   \end{tabular}
 \end{table}
 
-The intended conclusion is not that these microbenchmarks predict every
-serializer workload.  Rather, they check that the deriver does not impose an
-obvious extraction penalty on common shapes and on a case that stresses
-constructor dispatch.
+Negative changes in Table~\ref{tab:extraction} mean the generated code is
+faster than the handwritten baseline.
+These microbenchmarks do not predict every serializer workload.  They instead
+check the main engineering concern: generated instances should extract to code
+with the same general performance profile as direct handwritten Rocq
+definitions.
 
 \section{Related Work and Positioning}
 
 Rocq has several metaprogramming routes for deriving boilerplate.  MetaCoq
-\cite{Sozeau:2020:Metacoq} provides quoted syntax and verified metaprogramming; \coqelpi provides an
-embedded $\lambda$Prolog language integrated with Rocq elaboration and an
-existing derive framework.  \texttt{rocq-json} uses \coqelpi because the task is
-structural inspection plus term construction.  Compared with typical derivers
-for equality, ordering, showing, decidability, or logical instances, this tool
-generates executable code and a checked theorem relating two generated programs.
+\cite{Sozeau:2020:Metacoq} provides quoted syntax and verified
+metaprogramming; \coqelpi provides an embedded $\lambda$Prolog language
+integrated with Rocq elaboration and an existing derive framework.
+\texttt{rocq-json} uses \coqelpi because the task is structural inspection plus
+term construction.  Compared with typical derivers for equality, ordering,
+showing, decidability, or logical instances, this tool generates executable
+code and a checked theorem relating two generated programs.
 
-This work is in particular distinct from other existing works between Rocq and JSON such as Serlib/API \cite{GallegoArias:2016:SerAPI}.
-This work focuses precisely on automatically creating verified \lstinline|Jsonifiable| instances for code written \emph{within} Rocq, while previous works focus on the (de)serialization of Rocq primitives themselves.
+This work is also distinct from Rocq/JSON infrastructure such as Serlib/API
+\cite{GallegoArias:2016:SerAPI}.  Serlib serializes Rocq's own syntax and
+protocol data; \texttt{rocq-json} derives verified \lstinline|Jsonifiable|
+instances for user-defined Rocq data types.
 
 Production JSON libraries and language-specific deriving systems can generate
 efficient serializers outside Rocq.  They do not, however, produce a
@@ -391,19 +399,15 @@ reproducible artifact that reports both successes and limitations.
 
 \section{Artifact}
 
-The artifact is part of the contribution.  Tool papers benefit from evaluation
-that reviewers can rerun without reconstructing informal commands from prose.
-Our artifact provides a Docker path and a native path.  The main script rebuilds
-the project from a clean state, runs the broad applicability benchmark, runs the
-extraction benchmark, and regenerates the LaTeX macros included in this paper.
+The artifact provides both Docker and native workflows.  The main script
+rebuilds the project, runs the Corelib/Stdlib applicability benchmark, runs the
+extraction benchmark, and regenerates the LaTeX result macros used in this
+paper.  The generated JSON summary, CSV files, and Markdown failure report are
+included as inspection points: the summary gives aggregate counts, the CSV files
+give row-level data, and the failure report records representative diagnostics
+for each category.
 
-The generated files are meant to be read directly.  The JSON summary gives the
-aggregate result, the CSV files contain row-level data, and the Markdown failure
-report explains each failure category with representative Rocq diagnostics.
-This setup makes the boundary of the tool explicit: reviewers can see both what
-works and what is outside the supported fragment.
-
-\section{Limitations}
+\section{Limitations and Future Work}
 
 The current deriver targets computational data in \texttt{Type} or
 \texttt{Set}.  It does not attempt to serialize arbitrary propositions,
@@ -418,10 +422,11 @@ The JSON representation is also intentionally modest.  The paper evaluates the
 derivation method and the certified round-trip property, not complete adherence
 to the JSON RFC or interoperability with every external JSON parser.
 
-\section{Future Work}
-
-The main extension is support for indexed families and proof-bearing data.  Indexed families may require fixed-index instances or
-dependent-pair decoding; proof fields likely require erasure plus user-supplied reconstruction lemmas.
+The main extensions are indexed families, proof-bearing data, and deeper
+library discovery.  Indexed families may require fixed-index instances or
+dependent-pair decoding; proof fields likely require erasure plus user-supplied
+reconstruction lemmas.  A Rocq-assisted discovery phase could classify module
+scopes directly from Rocq's environment rather than relying on source syntax.
 
 \section{Conclusion}
 
@@ -436,5 +441,94 @@ the reproducibility of their claims about applicability and performance.
 
 \bibliographystyle{splncs04}
 \bibliography{bib/sldg}
+
+\newpage
+\appendix
+\raggedbottom
+
+\section{Round-Trip Benchmark Rocq Code}
+
+The extracted-code benchmarks in Table~\ref{tab:extraction} are defined in the
+extraction benchmark source.  The generated cases use
+\texttt{Elpi derive.jsonifiable}; the primed instances below are the handwritten
+Rocq baselines extracted and timed by the same harness.
+
+\subsection{Benchmark Types}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=26,
+  lastline=45,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=68,
+  lastline=76,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=165,
+  lastline=168,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=425,
+  lastline=458,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\subsection{Handwritten Rocq Baselines}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=257,
+  lastline=383,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=461,
+  lastline=471,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+$$\vdots$$
+\lstinputlisting[
+  language=Coq,
+  firstline=590,
+  lastline=601,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+$$\vdots$$
+\lstinputlisting[
+  language=Coq,
+  firstline=720,
+  lastline=724,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\subsection{Extraction Command}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=726,
+  lastline=734,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
 
 \end{document}
