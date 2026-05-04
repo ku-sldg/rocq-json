@@ -17,6 +17,8 @@
   xrightmargin=0.5em
 }
 
+\setlength{\intextsep}{1em}
+
 \IfFileExists{generated/results.tex}
   {\input{generated/results.tex}}
   {\input{write_up/generated/results.tex}}
@@ -117,10 +119,8 @@ encoder, decoder, proof of \emph{invertibility}, and registered typeclass instan
 
 \begin{lstlisting}[language=Coq]
 Inductive UserRole : Type :=
-| Admin
-| Moderator (level : nat)
-| StandardUser (id : nat) (username : string)
-| Guest.
+| Admin   | Guest   | Moderator (level : nat)
+| StandardUser (id : nat) (username : string).
 Elpi derive.jsonifiable UserRole.
 \end{lstlisting}
 
@@ -130,11 +130,9 @@ object for constructors with fields:
 \begin{lstlisting}[language=Coq]
 Example role_roundtrip (r : UserRole) :
   from_JSON (to_JSON r) = res r := canonical_jsonification r.
-
 Example moderator_json :
-  to_JSON (Moderator 2) =
-    JSON_Object [("Moderator", JSON_Object [("level", JSON_Nat 2)])] :=
-  eq_refl.
+  to_JSON (Moderator 2) = JSON_Object [
+    ("Moderator", JSON_Object [("level", JSON_Nat 2)])] := eq_refl.
 \end{lstlisting}
 
 For parameterized types, the generated instance takes serializers for type
@@ -150,8 +148,7 @@ Inductive BinTree (A : Type) : Type :=
 | BinLeaf
 | BinNode (left : BinTree A) (value : A) (right : BinTree A).
 Elpi derive.jsonifiable BinTree.
-Check BinTree_Jsonifiable :
-  forall A, Jsonifiable A -> Jsonifiable (BinTree A).
+Check BinTree_Jsonifiable : \forall A, Jsonifiable A -> Jsonifiable (BinTree A).
 \end{lstlisting}
 
 The generated proof is part of the public contract.  A successful derivation
@@ -252,7 +249,7 @@ records or structures; \JsonifiableSuccessCorelib{} are from Corelib and
 The category names in Table~\ref{tab:applicability} are a triage device, not a
 claim that every failure is invalid input.  Some categories are semantic
 non-targets for this version of the tool, such as propositions or coinductive
-streams.  Others are engineering limitations or possible tool failures.
+streams, while others are representation engineering limitations.
 Table~\ref{tab:failure-examples} gives one representative declaration for each
 category and the rationale used by the artifact.
 
@@ -297,8 +294,7 @@ parameterized modules or functor bodies, such as
 \JsonifiableSkippedModuleType{} occur inside module types or signatures, such
 as \texttt{Stdlib.MSets.MSetGenTree.Ops.tree}.  These are genuine source
 declarations, but not closed global references to which the deriver can be
-applied directly.  All categories are reported explicitly so the success rate
-is auditable rather than inflated by silent filtering.
+applied directly \emph{outside the functor}.  All categories are reported explicitly so the success rate is clear and auditable.
 
 The raw success rate is therefore intentionally not the main applicability
 claim.  Of the \JsonifiableDiscovered{} discovered declarations, 167 live in
@@ -369,15 +365,14 @@ representative values.
 
 Negative changes in Table~\ref{tab:extraction} mean the generated code is
 faster than the handwritten baseline.
-These microbenchmarks do not predict every serializer workload.  They instead
-check the main engineering concern: generated instances should extract to code
-with the same general performance profile as direct handwritten Rocq
-definitions.
+These benchmarks do not predict every serializer workload, but instead
+validate the main engineering concern: generated instances should extract
+to code with the same or better performance profiles as direct
+handwritten Rocq definitions.
 
 \section{Related Work and Positioning}
 
-Rocq has several metaprogramming routes for deriving boilerplate.  MetaCoq
-\cite{Sozeau:2020:Metacoq} provides quoted syntax and verified
+Rocq has several metaprogramming routes for deriving boilerplate.  MetaCoq~\cite{Sozeau:2020:Metacoq} provides quoted syntax and verified
 metaprogramming; \coqelpi provides an embedded $\lambda$Prolog language
 integrated with Rocq elaboration and an existing derive framework.
 \texttt{rocq-json} uses \coqelpi because the task is structural inspection plus
@@ -385,8 +380,7 @@ term construction.  Compared with typical derivers for equality, ordering,
 showing, decidability, or logical instances, this tool generates executable
 code and a checked theorem relating two generated programs.
 
-This work is also distinct from Rocq/JSON infrastructure such as Serlib/API
-\cite{GallegoArias:2016:SerAPI}.  Serlib serializes Rocq's own syntax and
+This work is also distinct from Rocq/JSON infrastructure such as SerAPI~\cite{GallegoArias:2016:SerAPI}.  Serlib serializes Rocq's own syntax and
 protocol data; \texttt{rocq-json} derives verified \lstinline|Jsonifiable|
 instances for user-defined Rocq data types.
 
@@ -397,15 +391,15 @@ substantially new combination here is generated encoder, generated decoder,
 checked encode-decode theorem, extraction-conscious code shape, and a
 reproducible artifact that reports both successes and limitations.
 
-\section{Artifact}
+% \section{Artifact}
 
-The artifact provides both Docker and native workflows.  The main script
-rebuilds the project, runs the Corelib/Stdlib applicability benchmark, runs the
-extraction benchmark, and regenerates the LaTeX result macros used in this
-paper.  The generated JSON summary, CSV files, and Markdown failure report are
-included as inspection points: the summary gives aggregate counts, the CSV files
-give row-level data, and the failure report records representative diagnostics
-for each category.
+% The artifact is provided in the form of a \texttt{opam} installable and distributable project. \texttt{dune} can be used to build the main
+% project, runs the Corelib/Stdlib applicability benchmark, runs the
+% extraction benchmark, and regenerates the LaTeX result macros used in this
+% paper.  The generated JSON summary, CSV files, and Markdown failure report are
+% included as inspection points: the summary gives aggregate counts, the CSV files
+% give row-level data, and the failure report records representative diagnostics
+% for each category.
 
 \section{Limitations and Future Work}
 
@@ -413,13 +407,11 @@ The current deriver targets computational data in \texttt{Type} or
 \texttt{Set}.  It does not attempt to serialize arbitrary propositions,
 dependent families, coinductive values, function fields, or records whose field
 types depend on earlier fields.  Some nested recursion through standard
-containers is supported, but general nested and mutually recursive types remain
-outside the current design.  This is a deliberate usability choice: partial
-support for a few accidental nested forms can be worse than a clear diagnostic
-when users cannot predict which structurally similar declarations will work.
+containers is supported, but arbitrary nested and mutually recursive types remain
+outside the current design.
 
 The JSON representation is also intentionally modest.  The paper evaluates the
-derivation method and the certified round-trip property, not complete adherence
+\emph{derivation method and the certified round-trip property}, not complete adherence
 to the JSON RFC or interoperability with every external JSON parser.
 
 The main extensions are indexed families, proof-bearing data, and deeper
@@ -434,10 +426,10 @@ scopes directly from Rocq's environment rather than relying on source syntax.
 verified components can be treated as part of the formal artifact.  The
 generated instances combine executable encoders and decoders with Rocq-checked
 invertibility proofs, apply across a meaningful fragment of existing library
-declarations, and extract to competitive code on the evaluated examples.  The
-broader lesson is that certified derivation tools should be judged not only by
-the terms they generate, but also by the deployment boundary they secure and by
-the reproducibility of their claims about applicability and performance.
+declarations, and extract to competitive code on the evaluated examples.
+The broader lesson is that certified derivation tools can be utilized in
+verification efforts to generate performant code \emph{without} leaving
+the assurance boundary.
 
 \bibliographystyle{splncs04}
 \bibliography{bib/sldg}
@@ -468,6 +460,8 @@ Rocq baselines extracted and timed by the same harness.
   firstline=68,
   lastline=76,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
@@ -476,6 +470,8 @@ Rocq baselines extracted and timed by the same harness.
   firstline=165,
   lastline=168,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
@@ -484,6 +480,8 @@ Rocq baselines extracted and timed by the same harness.
   firstline=425,
   lastline=458,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
@@ -494,6 +492,8 @@ Rocq baselines extracted and timed by the same harness.
   firstline=257,
   lastline=383,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
@@ -502,6 +502,8 @@ Rocq baselines extracted and timed by the same harness.
   firstline=461,
   lastline=471,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 $$\vdots$$
@@ -510,6 +512,8 @@ $$\vdots$$
   firstline=590,
   lastline=601,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 $$\vdots$$
@@ -518,6 +522,8 @@ $$\vdots$$
   firstline=720,
   lastline=724,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
@@ -528,6 +534,8 @@ $$\vdots$$
   firstline=726,
   lastline=734,
   breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
   basicstyle=\ttfamily\scriptsize
 ]{../extracting/JSON_Derive_Tests.v}
 
