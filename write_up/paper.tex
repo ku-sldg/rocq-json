@@ -62,7 +62,7 @@ structured system descriptions and counterexamples, verified runtime monitors
 consume event logs, test generators exchange inputs and results, and verified
 protocols serialize messages for unverified peers.
 The problem is that the serialization layer is often outside the trusted
-development.  Extraction preserves the behavior of Rocq terms, but it does not
+development.  Extraction preserves the behavior of Rocq \cite{rocqDevs:2025:rocq_9.0.0} terms, but it does not
 automatically certify the hand-written encoder or decoder that maps those terms
 to a deployment format.  A bug in that code can invalidate the deployed verification story.
 
@@ -142,7 +142,7 @@ structurally recursive definitions.  The current implementation also supports a
 conservative collection of nested recursive occurrences through standard data
 containers such as lists, options, and products.  More general nested or
 mutually recursive types are currently reported as unsupported rather than
-handled partially.\footnote{The issue of generating quality \texttt{to/from\_JSON} functions is not as difficult as proving them without}
+handled partially.\footnote{The issue of generating quality \texttt{to/from\_JSON} functions is not as difficult as proving them correct without quality structural recursion procedures. This may be mitigated as better support for nested inductives in Rocq is actively being pursued \cite{Lamiaux:2026:Rocq-Nested-Inductives}}
 
 \begin{lstlisting}[language=Coq]
 Inductive BinTree (A : Type) : Type :=
@@ -180,11 +180,12 @@ part of the trusted development.
 Two engineering choices are central.  First, field serializers are kept
 abstract through typeclass arguments where possible.  This makes generated
 instances compose with existing hand-written or derived instances, including
-standard containers.  Second, decoder generation is performance-sensitive.
+standard containers. In practice, this means that although \lstinline|nat| in Rocq is inductively defined as \lstinline[language=Coq]{O | S _}, we are better served by making it an actual number (e.g. 0, 1, 42).
+Second, decoder generation is performance-sensitive.
 Large enumerations are decoded using a string decision tree that extracts to
 direct pattern matching over characters, avoiding a long chain of string
 equality tests.  The resulting extracted code is close to the shape a careful
-user would write by hand.
+and performance oriented user would write by hand.
 
 The proof-generation strategy is mixed.  General recursive and record cases use
 Rocq proof automation specialized to the generated encoders and decoders.  Pure
