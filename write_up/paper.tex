@@ -3,6 +3,7 @@
 \usepackage{booktabs}
 \usepackage{listings}
 \usepackage{url}
+\usepackage{xspace}
 
 \input{coq-listings}
 
@@ -22,24 +23,29 @@
 \title{Engineering Certified JSON Derivers for Rocq with ELPI}
 \titlerunning{Certified JSON Derivers for Rocq}
 
-\author{Will Thomas}
-\authorrunning{W. Thomas}
-\institute{University of Kansas}
+\author{Will Thomas \and Perry Alexander}
+
+\authorrunning{W. Thomas, P. Alexander} % Abbreviated for headers
+
+\institute{University of Kansas, Lawrence, USA\\
+\email{\{30wthomas, palexand\}@ku.edu}}
+
+\newcommand{\coqelpi}{\texttt{coq-elpi}\xspace}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-  Rocq developments often need executable serializers for data exchange, testing,
-  and extracted applications, but hand-written serializers are tedious and easy to
-  disconnect from their intended inverse.  We present an ELPI-based deriver for
-  JSON that automatically generates \texttt{Jsonifiable} instances
-  for a practical fragment of Rocq inductive and record types.  Each generated
-  instance contains an encoder, a decoder, and a proof that decoding the encoded
-  value succeeds with the original value. The contribution is a
-  performance-conscious and easily usable engineering tool for mapping
-  Rocq data to a JSON interchange format, while preserving an explicit
-  correctness theorem.
+  Practical verification produces extracted code, and extracted code eventually
+  crosses system boundaries.  JSON is a common boundary format for
+  configuration, test data, counterexamples, traces, and tool pipelines, but
+  serializers at this boundary are often hand-written and unverified.  We
+  present an ELPI-based deriver for JSON that automatically generates
+  \texttt{Jsonifiable} instances for a practical fragment of Rocq inductive and
+  record types.  Each generated instance contains an encoder, a decoder, and a
+  Rocq-checked proof that decoding the encoded value recovers the original.  The
+  contribution is a performance-conscious tool for extending the verified trust
+  perimeter of extracted Rocq components to their JSON boundary.
   % The accompanying artifact rebuilds the tool, probes
   % Corelib and Stdlib declarations, classifies unsupported cases, compares
   % generated and handwritten Rocq definitions after extraction, and
@@ -48,13 +54,25 @@
 
 \section{Introduction}
 
-Serialization code sits at an awkward boundary in proof assistant projects.  It
-is usually mundane enough that users do not want to write it by hand, but it is
-important enough that a bug can invalidate testing infrastructure or extracted
-tools.  In Rocq, this tension is especially visible for data types that are
-defined primarily for proofs and then reused in extracted programs.
+Automated verification is often evaluated by the proof it produces, but
+practical formal methods also has to run.  A verified component may be extracted
+to OCaml, linked into a test harness, used as a runtime monitor, embedded in a
+larger tool chain, or deployed as part of a verified system.  As soon as that
+component communicates with the outside world, the proof assistant's internal
+data representation crosses a boundary.
 
-\texttt{rocq-json} addresses this problem with the following typeclass:
+JSON is a common format at that boundary.  Model-checker front-ends exchange
+structured system descriptions and counterexamples, verified runtime monitors
+consume event logs, test generators exchange inputs and results, and verified
+protocol or attestation components serialize messages for unverified peers.
+The problem is that the serialization layer is often outside the trusted
+development.  Extraction preserves the behavior of Rocq terms, but it does not
+automatically certify the hand-written encoder or decoder that maps those terms
+to a deployment format.  A bug in that code does not invalidate the theorem, but
+it can invalidate the deployed verification story.
+
+\texttt{rocq-json} addresses this gap by extending the formal trust perimeter to
+the JSON boundary.  It provides the following typeclass:
 
 \begin{lstlisting}[language=Coq]
 Class Jsonifiable (A : Type) := {
@@ -65,16 +83,20 @@ Class Jsonifiable (A : Type) := {
 \end{lstlisting}
 
 The deriver described here generates all three components for many ordinary
-inductive and record types.  It is implemented in coq-elpi and exposed through
-the command \texttt{Elpi derive.jsonifiable T}.
+inductive and record types.  It is implemented in \coqelpi and exposed through
+the command \texttt{Elpi derive.jsonifiable T}.  For verification-oriented
+applications that produce JSON, the central guarantee is exactly the displayed
+one: a value that leaves the verified component through the encoder can be
+decoded back to the same Rocq value.
 
 This is a tool paper about useful engineering rather than a claim of novel
-foundations.  The interesting part is the integration: ELPI inspection of Rocq
-declarations, generated code that remains suitable for extraction, typeclass
-parameters for nested serializable fields, and automatic proof construction for
-the round-trip theorem.  The same ingredients are broadly useful for other
-derivers that construct computational content and accompanying correctness
-proofs.
+foundations.  The substantially new contribution is the integration of ELPI
+inspection of Rocq declarations, generated code that remains suitable for
+extraction, typeclass parameters for nested serializable fields, automatic proof
+construction for the round-trip theorem, and an artifact that measures both
+applicability and extracted performance.  The same ingredients are broadly
+useful for other derivers that construct computational content and accompanying
+correctness proofs.
 
 % Reference ideas, intentionally not instantiated here:
 % - coq-elpi / ELPI papers and documentation.
@@ -118,13 +140,13 @@ Example moderator_json :
   eq_refl.
 \end{lstlisting}
 
-For parameterized data types, the generated instance abstracts over
-\texttt{Jsonifiable} instances for the type parameters.  For recursive types,
-the generated encoder and decoder use structurally recursive definitions.  The
-current implementation also supports a conservative collection of nested
-recursive occurrences through standard data containers such as lists, options,
-and products.  More general nested or mutually recursive types are reported as
-unsupported rather than handled partially by ad hoc guesses.
+For parameterized types, the generated instance takes serializers for type
+parameters.  For recursive types, the generated encoder and decoder use
+structurally recursive definitions.  The current implementation also supports a
+conservative collection of nested recursive occurrences through standard data
+containers such as lists, options, and products.  More general nested or
+mutually recursive types are reported as unsupported rather than handled
+partially by ad hoc guesses.
 
 \begin{lstlisting}[language=Coq]
 Inductive BinTree (A : Type) : Type :=
@@ -139,18 +161,25 @@ The generated proof is part of the public contract.  A successful derivation
 does not merely produce functions with plausible behavior; it registers a
 \texttt{canonical\_jsonification} proof.  This property is intentionally
 one-sided.  It says that values produced by the encoder can be decoded back to
-the original value.  It does not claim that every accepted JSON value is in a
-canonical printed form.
+the original value.  For extracted verified components that emit JSON for other
+tools or services, this is the direction that protects the boundary: the
+serialized message has not lost or changed the Rocq value.  The converse
+property, that every accepted JSON value is a canonical representation, is a
+different contract.  It would require specifying a canonical JSON grammar for
+each type and proving that the decoder rejects all non-canonical alternatives,
+which is useful but substantially more representation-specific.
 
 \section{Implementation}
 
-The deriver follows the shape of the Rocq declaration.  ELPI first reads the
-inductive or record view, classifies parameters and constructor arguments, and
-then builds separate skeletons for the encoder, decoder, proof, and final
-typeclass instance.  The skeletons are elaborated by Rocq before being added as
-constants.  This staging has been useful in practice: ELPI performs structural
-analysis and code generation, while Rocq remains responsible for checking the
-terms that become part of the trusted development.
+The deriver follows the shape of the Rocq declaration.  ELPI is an embedded
+$\lambda$Prolog language used by \coqelpi to inspect and construct Rocq terms at
+the meta-level.  The deriver first reads the inductive or record view,
+classifies parameters and constructor arguments, and then builds separate
+skeletons for the encoder, decoder, proof, and final typeclass instance.  The
+skeletons are elaborated by Rocq before being added as constants.  This staging
+has been useful in practice: ELPI performs structural analysis and code
+generation, while Rocq remains responsible for checking the terms that become
+part of the trusted development.
 
 Two engineering choices are central.  First, field serializers are kept
 abstract through typeclass arguments where possible.  This makes generated
@@ -198,24 +227,16 @@ conservative: unsupported declarations remain visible as categorized failures.
   \end{tabular}
 \end{table}
 
-\begin{table}
-  \centering
-  \caption{Successful derivations by declaration shape and library.}
-  \begin{tabular}{lr@{\qquad}lr}
-    \toprule
-    Shape            & Count                         & Library & Count                      \\
-    \midrule
-    Inductive        & \JsonifiableSuccessInductives & Corelib & \JsonifiableSuccessCorelib \\
-    Variant          & \JsonifiableSuccessVariants   & Stdlib  & \JsonifiableSuccessStdlib  \\
-    Record/Structure & \JsonifiableSuccessRecords    &         &                            \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+The successful probes include \JsonifiableSuccessInductives{} inductives,
+\JsonifiableSuccessVariants{} variants, and \JsonifiableSuccessRecords{}
+records or structures; \JsonifiableSuccessCorelib{} are from Corelib and
+\JsonifiableSuccessStdlib{} are from Stdlib.
 
 \begin{table}
   \centering
   \caption{Failure categories reported by the probe benchmark.}
-  \begin{tabular}{lr}
+  \small
+  \begin{tabular}{p{0.68\linewidth}r}
     \toprule
     Category & Count \\
     \midrule
@@ -236,11 +257,28 @@ artifact.
   \centering
   \caption{Representative failure examples and classification rationale.}
   \label{tab:failure-examples}
-  \begin{tabular}{lrp{0.27\linewidth}p{0.36\linewidth}}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{p{0.43\linewidth}p{0.53\linewidth}}
     \toprule
-    Category & Count & Example & Rationale \\
+    Category and example & Rationale                                                                                                    \\
     \midrule
-    \JsonifiableFailureExampleRows
+    \texttt{prop-target-not-supported}: \texttt{or}
+                         & The target lives in \texttt{Prop}, so ordinary elimination into JSON data in \texttt{Type} is not available. \\
+    \texttt{dependent-field-not-supported}: \texttt{sig}
+                         & A later constructor field depends on an earlier witness; plain JSON does not reconstruct dependency.         \\
+    \texttt{indexed-family-not-supported}: \texttt{reflect}
+                         & The declaration is indexed by values rather than being a plain data type after parameters.                   \\
+    \texttt{scanner-or-logical-path}: \texttt{FMapAVL.Raw.tree}
+                         & The source scanner guessed a logical name that is not directly derivable.                                    \\
+    \texttt{function-field-not-supported}: \texttt{implies}
+                         & Arbitrary functions have no generic JSON representation.                                                     \\
+    \texttt{proof-field-not-supported}: \texttt{sumbool}
+                         & Constructor fields contain proof evidence that would need erasure or reconstruction.                         \\
+    \texttt{sort-field-not-supported}: \texttt{Tlist}
+                         & Constructor fields contain sorts such as \texttt{Type}; the deriver serializes values, not universes.        \\
+    \texttt{coinductive-not-supported}: \texttt{Stream}
+                         & Infinite data requires a different fuel-bounded or lazy serialization contract.                              \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -254,6 +292,16 @@ proof/SProp fields, sort-valued fields, or function fields.  The
 \texttt{scanner-or-logical-path} category is a limitation of the benchmark
 harness.  All categories are reported explicitly so the success rate is
 auditable rather than inflated by silent filtering.
+
+The raw success rate is therefore intentionally not the main applicability
+claim.  Of the \JsonifiableDiscovered{} discovered declarations, 167 live in
+\texttt{Prop}, one is coinductive, seven contain sort-valued or function-valued
+fields, and 18 are scanner or logical-path misses rather than deriver inputs.
+Removing just these semantic non-targets and harness misses leaves 150
+computational declarations that the benchmark could plausibly ask this tool to
+handle; \JsonifiableProbeSuccesses{} of them derive, or 52.0\%.  The remaining
+cases are visible limitations, chiefly dependent fields and indexed families,
+not hidden failures.
 
 \subsection{Derivation Time}
 
@@ -278,6 +326,12 @@ derivation time was \JsonifiableDerivationMeanSeconds{} seconds, the median was
     \bottomrule
   \end{tabular}
 \end{table}
+
+The slowest success is \texttt{byte}, a 256-constructor Corelib enumeration.  It
+is the broad benchmark's version of the large enum stress case used while
+engineering the string decision tree.  The remaining cost is dominated by
+Rocq-side derivation and proof construction; after extraction, the corresponding
+dispatch path is close to the handwritten Rocq baseline below.
 
 \subsection{Extracted Code Performance}
 
@@ -309,6 +363,23 @@ serializer workload.  Rather, they check that the deriver does not impose an
 obvious extraction penalty on common shapes and on a case that stresses
 constructor dispatch.
 
+\section{Related Work and Positioning}
+
+Rocq has several metaprogramming routes for deriving boilerplate.  MetaCoq
+provides quoted syntax and verified metaprogramming; \coqelpi provides an
+embedded $\lambda$Prolog language integrated with Rocq elaboration and an
+existing derive framework.  \texttt{rocq-json} uses \coqelpi because the task is
+structural inspection plus term construction.  Compared with typical derivers
+for equality, ordering, showing, decidability, or logical instances, this tool
+generates executable code and a checked theorem relating two generated programs.
+
+Production JSON libraries and language-specific deriving systems can generate
+efficient serializers outside Rocq.  They do not, however, produce a
+Rocq-checked theorem tied to the source inductive or record declaration.  The
+substantially new combination here is generated encoder, generated decoder,
+checked encode-decode theorem, extraction-conscious code shape, and a
+reproducible artifact that reports both successes and limitations.
+
 \section{Artifact}
 
 The artifact is part of the contribution.  Tool papers benefit from evaluation
@@ -338,16 +409,25 @@ The JSON representation is also intentionally modest.  The paper evaluates the
 derivation method and the certified round-trip property, not complete adherence
 to the JSON RFC or interoperability with every external JSON parser.
 
+\section{Future Work}
+
+The main extensions are indexed families, proof-bearing data, and better
+library discovery.  Indexed families may require fixed-index instances or
+dependent-pair decoding; proof fields likely require erasure plus user-supplied
+reconstruction lemmas.  A Rocq-assisted discovery phase would also separate
+scanner limitations from deriver limitations.  Finally, the declaration
+analysis used here could be factored into reusable ELPI infrastructure for
+other certified derivers that generate executable code and proofs together.
+
 \section{Conclusion}
 
-\texttt{rocq-json}'s ELPI deriver demonstrates that useful certified
-serialization support can be built with a small user-facing interface and an
-honest artifact.  The generated instances combine executable encoders and
-decoders with Rocq-checked invertibility proofs, apply across a meaningful
-fragment of existing library declarations, and extract to competitive code on a
-large-enumeration stress test.  The engineering is specific to JSON, but the
-pattern is broader: use ELPI to inspect declarations, generate computational
-content and proof obligations together, and evaluate both applicability and
-runtime behavior as first-class artifact outputs.
+\texttt{rocq-json}'s ELPI deriver demonstrates that boundary code for extracted
+verified components can be treated as part of the formal artifact.  The
+generated instances combine executable encoders and decoders with Rocq-checked
+invertibility proofs, apply across a meaningful fragment of existing library
+declarations, and extract to competitive code on the evaluated examples.  The
+broader lesson is that certified derivation tools should be judged not only by
+the terms they generate, but also by the deployment boundary they secure and by
+the reproducibility of their claims about applicability and performance.
 
 \end{document}
