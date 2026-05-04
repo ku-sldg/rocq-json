@@ -46,10 +46,6 @@
   Rocq-checked proof that decoding the encoded value recovers the original.  The
   contribution is a performance-conscious tool for extending the verified trust
   perimeter of extracted Rocq components to their JSON boundary.
-  % The accompanying artifact rebuilds the tool, probes
-  % Corelib and Stdlib declarations, classifies unsupported cases, compares
-  % generated and handwritten Rocq definitions after extraction, and
-  % regenerates the result tables used by this paper.
 \end{abstract}
 
 \section{Introduction}
@@ -64,12 +60,11 @@ data representation crosses a boundary.
 JSON is a common format at that boundary.  Model-checker front-ends exchange
 structured system descriptions and counterexamples, verified runtime monitors
 consume event logs, test generators exchange inputs and results, and verified
-protocol or attestation components serialize messages for unverified peers.
+protocols serialize messages for unverified peers.
 The problem is that the serialization layer is often outside the trusted
 development.  Extraction preserves the behavior of Rocq terms, but it does not
 automatically certify the hand-written encoder or decoder that maps those terms
-to a deployment format.  A bug in that code does not invalidate the theorem, but
-it can invalidate the deployed verification story.
+to a deployment format.  A bug in that code can invalidate the deployed verification story.
 
 \texttt{rocq-json} addresses this gap by extending the formal trust perimeter to
 the JSON boundary.  It provides the following typeclass:
@@ -89,8 +84,9 @@ applications that produce JSON, the central guarantee is exactly the displayed
 one: a value that leaves the verified component through the encoder can be
 decoded back to the same Rocq value.
 
-This is a tool paper about useful engineering rather than a claim of novel
-foundations.  The substantially new contribution is the integration of ELPI
+This is a tool paper about practical verification engineering with code that
+may cross assurance boundaries.
+The substantially new contribution is the integration of ELPI
 inspection of Rocq declarations, generated code that remains suitable for
 extraction, typeclass parameters for nested serializable fields, automatic proof
 construction for the round-trip theorem, and an artifact that measures both
@@ -112,11 +108,11 @@ enumeration, algebraic data type, parameterized container, or record, the user
 invokes the deriver and receives a registered typeclass instance.  Nullary
 constructors are encoded as JSON strings.  Constructors with arguments are
 encoded as singleton JSON objects whose key is the constructor name and whose
-value stores named fields.  Records are encoded as JSON objects keyed by
-projection names.
+value stores named fields.\footnote{For anonymous arguments, a suitable name is inferred from the \emph{type} of the argument}
+Records are encoded as JSON objects keyed by projection names.
 
 For example, the following declaration and command are enough to produce an
-encoder, decoder, proof, and registered instance:
+encoder, decoder, proof of \emph{invertibility}, and registered typeclass instance:
 
 \begin{lstlisting}[language=Coq]
 Inductive UserRole : Type :=
@@ -145,8 +141,8 @@ parameters.  For recursive types, the generated encoder and decoder use
 structurally recursive definitions.  The current implementation also supports a
 conservative collection of nested recursive occurrences through standard data
 containers such as lists, options, and products.  More general nested or
-mutually recursive types are reported as unsupported rather than handled
-partially by ad hoc guesses.
+mutually recursive types are currently reported as unsupported rather than
+handled partially.\footnote{The issue of generating quality \texttt{to/from\_JSON} functions is not as difficult as proving them without}
 
 \begin{lstlisting}[language=Coq]
 Inductive BinTree (A : Type) : Type :=
@@ -429,5 +425,8 @@ declarations, and extract to competitive code on the evaluated examples.  The
 broader lesson is that certified derivation tools should be judged not only by
 the terms they generate, but also by the deployment boundary they secure and by
 the reproducibility of their claims about applicability and performance.
+
+\bibliographystyle{splncsnat}
+\bibliography{bib/sldg}
 
 \end{document}

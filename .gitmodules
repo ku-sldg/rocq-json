@@ -1,0 +1,4 @@
+[submodule "bib"]
+	path = write_up/bib
+	url = git@github.com:ku-sldg/bib.git
+	branch = master
