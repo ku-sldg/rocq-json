@@ -247,9 +247,12 @@ records or structures; \JsonifiableSuccessCorelib{} are from Corelib and
 \JsonifiableSuccessStdlib{} are from Stdlib.
 
 The category names in Table~\ref{tab:applicability} are a triage device, not a
-claim that every failure is invalid input.  Some categories are semantic
-non-targets for this version of the tool, such as propositions or coinductive
-streams, while others are representation engineering limitations.
+claim that every failed probe is a tool defect.  Some declarations are clear
+non-targets for serialization: propositions are erased by extraction, functions
+have no canonical JSON representation, sort-valued fields contain types rather
+than values, and coinductive values may be infinite.  The genuine current
+limitations are concentrated around dependent data, where decoding must
+reconstruct values whose types depend on earlier fields or external indices.
 Table~\ref{tab:failure-examples} gives one representative declaration for each
 category and the rationale used by the artifact.
 
@@ -264,48 +267,56 @@ category and the rationale used by the artifact.
     Category and example & Rationale                                                                                                    \\
     \midrule
     \texttt{prop-target-not-supported}: \texttt{or}
-                         & The target lives in \texttt{Prop}, so ordinary elimination into JSON data in \texttt{Type} is not available. \\
+                         & The target lives in \texttt{Prop}; propositions are erased at extraction and are not runtime data.           \\
     \texttt{dependent-field-not-supported}: \texttt{sig}
-                         & A later constructor field depends on an earlier witness; plain JSON does not reconstruct dependency.         \\
+                         & A later field depends on an earlier witness; decoding must reconstruct a value and its dependent type.        \\
     \texttt{indexed-family-not-supported}: \texttt{reflect}
-                         & The declaration is indexed by values rather than being a plain data type after parameters.                   \\
+                         & The declaration is indexed by values; decoding requires recovering the index or fixing it in the instance.   \\
     \texttt{function-field-not-supported}: \texttt{implies}
-                         & Arbitrary functions have no generic JSON representation.                                                     \\
+                         & Arbitrary functions have no canonical data representation in JSON or ordinary serializers.                   \\
     \texttt{proof-field-not-supported}: \texttt{sumbool}
-                         & Constructor fields contain proof evidence that would need erasure or reconstruction.                         \\
+                         & A computational wrapper carries proof evidence; decoding requires proof erasure or reconstruction.           \\
     \texttt{sort-field-not-supported}: \texttt{Tlist}
-                         & Constructor fields contain sorts such as \texttt{Type}; the deriver serializes values, not universes.        \\
+                         & Constructor fields contain sorts such as \texttt{Type}; these are types, not JSON values.                   \\
     \texttt{coinductive-not-supported}: \texttt{Stream}
-                         & Infinite data requires a different fuel-bounded or lazy serialization contract.                              \\
+                         & Potentially infinite data needs an explicit depth-bounded or lazy serialization contract.                    \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The important distinction is between unsupported-by-design and unresolved.  The
-paper claims the former only for cases where the current \texttt{Jsonifiable}
-interface has no clear computational target, for example \texttt{Prop} targets
-or potentially infinite coinductive data.  The remaining unsupported categories
-name the blocking shape directly: dependent fields, indexed families,
-proof/SProp fields, sort-valued fields, or function fields.  The
+The important distinction is between non-targets and genuine engineering
+limitations.  The non-target group is not a design choice particular to
+\texttt{rocq-json}: there is simply no runtime proposition to serialize after
+extraction; arbitrary functions do not have a canonical finite data
+representation; sorts such as \texttt{Type} and \texttt{Set} are not ordinary
+values; and coinductive data needs a separate bounded or lazy contract.  These
+account for 158 probe failures.  The remaining large categories are dependent
+fields and indexed families, 69 cases in total.  Those are real future work:
+the JSON decoder would have to recover enough information to reconstruct a
+dependent value, or the deriver would need a fixed-index or sigma-style
+encoding.  The three proof-field cases sit on the same boundary: the outer type
+is computational, but successful decoding would require erasing or rebuilding
+proof evidence that extraction normally removes.  The
 \JsonifiableSkipped{} recorded-but-not-probed declarations are reported in the
 artifact as well: \JsonifiableSkippedParameterizedModule{} occur inside
 parameterized modules or functor bodies, such as
 \texttt{Stdlib.FSets.FMapAVL.Raw.tree}, and
 \JsonifiableSkippedModuleType{} occur inside module types or signatures, such
-as \texttt{Stdlib.MSets.MSetGenTree.Ops.tree}.  These are genuine source
-declarations, but not closed global references to which the deriver can be
-applied directly \emph{outside the functor}.  All categories are reported explicitly so the success rate is clear and auditable.
+as \texttt{MSetGenTree.Ops.tree}.  These are genuine source declarations, but
+not closed global references to which the deriver can be applied directly
+\emph{outside the functor}.  All categories are reported explicitly so the
+success rate is clear and auditable.
 
 The raw success rate is therefore intentionally not the main applicability
-claim.  Of the \JsonifiableDiscovered{} discovered declarations, 167 live in
-\texttt{Prop}, one is coinductive, seven contain sort-valued or function-valued
-fields, and \JsonifiableSkipped{} are source declarations in functor or
-signature scopes rather than closed deriver inputs.  Removing just these
-semantic non-targets and explicitly recorded non-probe scopes leaves 153
-computational declarations that the benchmark could plausibly ask this tool to
-handle; \JsonifiableProbeSuccesses{} of them derive, or 52.9\%.  The remaining
-cases are visible limitations, chiefly dependent fields and indexed families,
-not hidden failures.
+claim.  Of the \JsonifiableDiscovered{} discovered declarations, the
+\JsonifiableSkipped{} functor/signature declarations are not closed deriver
+inputs, and 158 probe failures are non-targets in the sense above.  The
+meaningful remaining gap is the dependent fragment: dependent fields, indexed
+families, and proof-bearing computational wrappers.  This is also the fragment
+where extraction itself erases part of the proof context, so serializing the
+``whole'' dependent value is not always the right deployment contract.  The
+artifact reports these cases explicitly rather than folding them into an
+undifferentiated failure count.
 
 \subsection{Derivation Time}
 
@@ -404,21 +415,32 @@ reproducible artifact that reports both successes and limitations.
 \section{Limitations and Future Work}
 
 The current deriver targets computational data in \texttt{Type} or
-\texttt{Set}.  It does not attempt to serialize arbitrary propositions,
-dependent families, coinductive values, function fields, or records whose field
-types depend on earlier fields.  Some nested recursion through standard
+\texttt{Set}.  It deliberately excludes shapes where serialization is not a
+well-defined request: propositions are not runtime values after extraction,
+functions have no canonical finite data representation, sort-valued fields
+contain types rather than values, and coinductive values require a separate
+bounded or lazy contract.  These exclusions are not merely conservative
+engineering choices; they follow from the operational meaning of the values.
+
+The remaining limitations are mostly dependent-type limitations.  The deriver
+does not yet support dependent families, indexed families, or records whose
+field types depend on earlier fields.  Some nested recursion through standard
 containers is supported, but arbitrary nested and mutually recursive types remain
 outside the current design.
 
 The JSON representation is also intentionally modest.  The paper evaluates the
-\emph{derivation method and the certified round-trip property}, not complete adherence
-to the JSON RFC or interoperability with every external JSON parser.
+\emph{derivation method and the certified round-trip property}, not complete
+adherence to the JSON RFC or interoperability with every external JSON parser.
 
 The main extensions are indexed families, proof-bearing data, and deeper
 library discovery.  Indexed families may require fixed-index instances or
 dependent-pair decoding; proof fields likely require erasure plus user-supplied
-reconstruction lemmas.  A Rocq-assisted discovery phase could classify module
-scopes directly from Rocq's environment rather than relying on source syntax.
+reconstruction lemmas.  More generally, support for dependent data should make
+the extraction boundary explicit: when proofs or indices are erased at runtime,
+the right JSON format may be a projection of the computational content rather
+than a serialization of the full source-level dependent value.  A Rocq-assisted
+discovery phase could classify module scopes directly from Rocq's environment
+rather than relying on source syntax.
 
 \section{Conclusion}
 
