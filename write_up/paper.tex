@@ -70,17 +70,22 @@ development.  Extraction preserves the behavior of Rocq \cite{rocqDevs:2025:rocq
 automatically certify the hand-written encoder or decoder that maps those terms
 to a deployment format.  A bug in that code can invalidate the deployed verification story.
 
-As a concrete example, consider a verified runtime monitor extracted from a
-Rocq specification.  The monitor may consume JSON event logs produced by an
-unverified system, or emit JSON counterexample traces for an external
-visualizer.  If the boundary type is an event record with a tag, timestamp, and
-payload, then a hand-written decoder that swaps fields, drops a constructor, or
-accepts a malformed encoding can make the deployed monitor reason about a value
-different from the one represented at the JSON boundary.  The Rocq proof still
-holds internally, but the deployment guarantee has moved outside the proof.
-For outbound traces, the \texttt{canonical\_jsonification} theorem rules out
-this class of encoder/decoder mismatch at Rocq compile time: every value emitted
-by the verified component decodes back to the original Rocq value.
+As a concrete example, consider a verification pipeline with two extracted Rocq
+components: a verified analyzer that emits counterexample witnesses and a
+verified replay checker that independently validates those witnesses.  The
+components may be developed, extracted, and deployed separately, with JSON as
+the wire format between them.  If the shared boundary type is a trace datatype
+containing event records, branch choices, and final states, then the JSON format
+is part of the proof boundary: a hand-written encoder that drops a constructor,
+or a decoder that interprets fields in a different order, can make the replay
+checker validate a value different from the analyzer's internal witness.  The
+individual Rocq proofs still hold, but the composition of the two verified
+tools is mediated by unverified boundary code.  A shared \texttt{Jsonifiable}
+instance turns that boundary into a checked contract.  The
+\texttt{canonical\_jsonification} theorem says precisely that the receiving
+decoder for the agreed JSON representation recovers the value emitted by the
+sender's encoder, which is the property needed when verified tools exchange
+verification artifacts through an ordinary system format.
 
 \texttt{rocq-json} addresses this gap by extending the formal trust perimeter to
 the JSON boundary.  It provides the following typeclass:
