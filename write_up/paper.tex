@@ -264,22 +264,22 @@ category and the rationale used by the artifact.
   \setlength{\tabcolsep}{3pt}
   \begin{tabular}{p{0.43\linewidth}p{0.53\linewidth}}
     \toprule
-    Category and example & Rationale                                                                                                    \\
+    Category and example & Rationale                                                                                                  \\
     \midrule
     \texttt{prop-target-not-supported}: \texttt{or}
-                         & The target lives in \texttt{Prop}; propositions are erased at extraction and are not runtime data.           \\
+                         & The target lives in \texttt{Prop}; propositions are erased at extraction and are not runtime data.         \\
     \texttt{dependent-field-not-supported}: \texttt{sig}
-                         & A later field depends on an earlier witness; decoding must reconstruct a value and its dependent type.        \\
+                         & A later field depends on an earlier witness; decoding must reconstruct a value and its dependent type.     \\
     \texttt{indexed-family-not-supported}: \texttt{reflect}
-                         & The declaration is indexed by values; decoding requires recovering the index or fixing it in the instance.   \\
+                         & The declaration is indexed by values; decoding requires recovering the index or fixing it in the instance. \\
     \texttt{function-field-not-supported}: \texttt{implies}
-                         & Arbitrary functions have no canonical data representation in JSON or ordinary serializers.                   \\
+                         & Arbitrary functions have no canonical data representation in JSON or ordinary serializers.                 \\
     \texttt{proof-field-not-supported}: \texttt{sumbool}
-                         & A computational wrapper carries proof evidence; decoding requires proof erasure or reconstruction.           \\
+                         & A computational wrapper carries proof evidence; decoding requires proof erasure or reconstruction.         \\
     \texttt{sort-field-not-supported}: \texttt{Tlist}
-                         & Constructor fields contain sorts such as \texttt{Type}; these are types, not JSON values.                   \\
+                         & Constructor fields contain sorts such as \texttt{Type}; these are types, not JSON values.                  \\
     \texttt{coinductive-not-supported}: \texttt{Stream}
-                         & Potentially infinite data needs an explicit depth-bounded or lazy serialization contract.                    \\
+                         & Potentially infinite data needs an explicit depth-bounded or lazy serialization contract.                  \\
     \bottomrule
   \end{tabular}
 \end{table}
