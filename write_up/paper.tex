@@ -48,7 +48,8 @@
   record types.  Each generated instance contains an encoder, a decoder, and a
   Rocq-checked proof that decoding the encoded value recovers the original.  The
   contribution is a performance-conscious tool for extending the verified trust
-  perimeter of extracted Rocq components to their JSON boundary.
+  perimeter of extracted Rocq components to their JSON boundary.  The tool is
+  distributed as the \texttt{rocq-json} opam package.
 \end{abstract}
 
 \section{Introduction}
@@ -68,6 +69,18 @@ The problem is that the serialization layer is often outside the trusted
 development.  Extraction preserves the behavior of Rocq \cite{rocqDevs:2025:rocq_9.0.0} terms, but it does not
 automatically certify the hand-written encoder or decoder that maps those terms
 to a deployment format.  A bug in that code can invalidate the deployed verification story.
+
+As a concrete example, consider a verified runtime monitor extracted from a
+Rocq specification.  The monitor may consume JSON event logs produced by an
+unverified system, or emit JSON counterexample traces for an external
+visualizer.  If the boundary type is an event record with a tag, timestamp, and
+payload, then a hand-written decoder that swaps fields, drops a constructor, or
+accepts a malformed encoding can make the deployed monitor reason about a value
+different from the one represented at the JSON boundary.  The Rocq proof still
+holds internally, but the deployment guarantee has moved outside the proof.
+For outbound traces, the \texttt{canonical\_jsonification} theorem rules out
+this class of encoder/decoder mismatch at Rocq compile time: every value emitted
+by the verified component decodes back to the original Rocq value.
 
 \texttt{rocq-json} addresses this gap by extending the formal trust perimeter to
 the JSON boundary.  It provides the following typeclass:
@@ -97,12 +110,10 @@ applicability and extracted performance.  The same ingredients are broadly
 useful for other derivers that construct computational content and accompanying
 correctness proofs.
 
-% Reference ideas, intentionally not instantiated here:
-% - coq-elpi / ELPI papers and documentation.
-% - Rocq/Coq reference or system papers.
-% - Prior derive/generic-programming tools in Coq/Rocq.
-% - Extraction references.
-% - Tool paper examples from verification conferences.
+\paragraph{Availability.}
+The tool is available as the \texttt{rocq-json} opam package.  The public
+development repository and review artifact are available at
+\url{https://github.com/ku-sldg/rocq-json}.
 
 \section{Tool Overview}
 
@@ -111,7 +122,10 @@ enumeration, algebraic data type, parameterized container, or record, the user
 invokes the deriver and receives a registered typeclass instance.  Nullary
 constructors are encoded as JSON strings.  Constructors with arguments are
 encoded as singleton JSON objects whose key is the constructor name and whose
-value stores named fields.\footnote{For anonymous arguments, a suitable name is inferred from the \emph{type} of the argument}
+value stores named fields.\footnote{For anonymous arguments, the deriver uses
+  the first character of the argument type's head constructor name as a base key.  Duplicate
+  base keys are disambiguated with numeric suffixes, so two anonymous
+  \texttt{nat} fields become \texttt{n1} and \texttt{n2}.}
 Records are encoded as JSON objects keyed by projection names.
 
 For example, the following declaration and command are enough to produce an
@@ -150,6 +164,24 @@ Inductive BinTree (A : Type) : Type :=
 Elpi derive.jsonifiable BinTree.
 Check BinTree_Jsonifiable : \forall A, Jsonifiable A -> Jsonifiable (BinTree A).
 \end{lstlisting}
+
+Failures are reported as ordinary Rocq errors whose message names the blocking
+shape when it is recognized.  For example, attempting to derive an instance for
+\texttt{sig} fails with:
+
+\begin{lstlisting}
+Error:
+derive.jsonifiable: dependent constructor fields are not supported by
+Jsonifiable. Field: ... type head: unknown type constructor
+\end{lstlisting}
+
+The benchmark script used in Section~\ref{sec:evaluation} also acts as a
+batch diagnostic pass over installed Corelib/Stdlib sources: it records the
+failure category, source location, generated probe file, and complete Rocq log
+for every candidate.
+% The standalone user interface is intentionally smaller;
+% it does not yet provide a separate lint command that predicts derivability
+% without attempting the derivation.
 
 The generated proof is part of the public contract.  A successful derivation
 does not merely produce functions with plausible behavior; it registers a
@@ -192,6 +224,7 @@ on a common stress case.  This division is not theoretically deep, but it
 matters for predictable tool latency.
 
 \section{Evaluation}
+\label{sec:evaluation}
 
 We evaluate two questions: how broadly the deriver applies to existing Rocq
 declarations, and whether generated extracted code is competitive with
@@ -317,6 +350,11 @@ where extraction itself erases part of the proof context, so serializing the
 ``whole'' dependent value is not always the right deployment contract.  The
 artifact reports these cases explicitly rather than folding them into an
 undifferentiated failure count.
+Excluding the \JsonifiableSkipped{} functor/signature declarations that are not
+valid deriver inputs and the 158 non-target declarations, the tool successfully
+derives instances for \JsonifiableProbeSuccesses{} of 153 semantically eligible
+declarations, roughly 53\% coverage on the well-defined target fragment, with
+the remaining gap concentrated in dependent and indexed types.
 
 \subsection{Derivation Time}
 
@@ -378,8 +416,13 @@ Negative changes in Table~\ref{tab:extraction} mean the generated code is
 faster than the handwritten baseline.
 These benchmarks do not predict every serializer workload, but instead
 validate the main engineering concern: generated instances should extract
-to code with the same or better performance profiles as direct
+to code with the same general performance profile as direct
 handwritten Rocq definitions.
+The handwritten baselines were written by the authors in Rocq and extracted
+through the same pipeline; they were not independently optimized.  The
+comparison should therefore be read as evidence that generated code avoids
+obvious extraction-time performance regressions, not as a claim of superiority
+over all possible handwritten serializers or OCaml-specific deriving systems.
 
 \section{Related Work and Positioning}
 
@@ -387,17 +430,39 @@ Rocq has several metaprogramming routes for deriving boilerplate.  MetaCoq~\cite
 metaprogramming; \coqelpi provides an embedded $\lambda$Prolog language
 integrated with Rocq elaboration and an existing derive framework.
 \texttt{rocq-json} uses \coqelpi because the task is structural inspection plus
-term construction.  Compared with typical derivers for equality, ordering,
-showing, decidability, or logical instances, this tool generates executable
-code and a checked theorem relating two generated programs.
+term construction, with the generated terms checked by Rocq.  MetaCoq could in
+principle support a more deeply verified metaprogram through the
+SafeTemplateMonad; the tradeoff here is pragmatic.  The trusted result is not
+the ELPI program itself, but the generated Rocq constants and the
+\texttt{canonical\_jsonification} theorem that Rocq accepts.  This matches the
+engineering goal of producing executable boundary code and a checked contract
+with low user overhead. In particular, the use of ELPI allows efficient
+generation of the \lstinline|Jsonifiable| instances, as well as hooking
+into the general ``deriviation'' framework.
 
-This work is also distinct from Rocq/JSON infrastructure such as SerAPI~\cite{GallegoArias:2016:SerAPI}.  Serlib serializes Rocq's own syntax and
-protocol data; \texttt{rocq-json} derives verified \lstinline|Jsonifiable|
-instances for user-defined Rocq data types.
+\coqelpi already includes a derive framework and examples of type-directed
+derivers for logical or structural boilerplate.  Compared with typical derivers
+for equality, ordering, showing, decidability, or logical instances,
+\texttt{rocq-json} generates two executable programs and a theorem relating
+them.  That proof obligation changes the problem: it is not enough to inspect
+constructors and print code, because the generated encoder and decoder must be
+accepted together with an invertibility proof.
 
-Production JSON libraries and language-specific deriving systems can generate
-efficient serializers outside Rocq.  They do not, however, produce a
-Rocq-checked theorem tied to the source inductive or record declaration.  The
+This work is also distinct from Rocq/JSON infrastructure such as SerAPI~\cite{GallegoArias:2016:SerAPI}.  SerAPI serializes Rocq's own syntax and
+protocol data for interaction with external clients; \texttt{rocq-json} derives
+verified \lstinline|Jsonifiable| instances for user-defined Rocq data types.
+
+Lean provides JSON datatypes and typeclass-based
+derivation facilities in its programming environment~\cite{moura2015lean,Lean4Json} through the \texttt{deriving} system.
+These ecosystems support
+practical serialization workflows, but the serialization layer is not normally
+accompanied by a proof, at the source proof-assistant level, that decoding the
+encoded value recovers the original user datatype.
+
+OCaml libraries such as \texttt{ppx\_yojson\_conv}
+generate efficient JSON code for production datatypes~\cite{PpxYojsonConv}.
+These systems are practical and often highly optimized, but they critically do not produce
+a Rocq-checked theorem tied to the source inductive or record declaration.  The
 substantially new combination here is generated encoder, generated decoder,
 checked encode-decode theorem, extraction-conscious code shape, and a
 reproducible artifact that reports both successes and limitations.
@@ -458,7 +523,6 @@ the assurance boundary.
 
 \newpage
 \appendix
-\raggedbottom
 
 \section{Round-Trip Benchmark Rocq Code}
 

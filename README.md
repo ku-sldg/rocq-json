@@ -46,5 +46,17 @@ dune build
 dune install
 ```
 
+## Artifact workflow
+
+The tool-paper artifact instructions are in [`write_up/ARTIFACT.md`](write_up/ARTIFACT.md).
+They cover dependencies, Docker and native evaluation, benchmark outputs, and a
+minimal `Elpi derive.jsonifiable` example.
+
+The shortest reproducible path is:
+
+```shell
+docker build -f Dockerfile.artifact -t rocq-json-artifact .
+docker run --rm rocq-json-artifact
+```
 
 

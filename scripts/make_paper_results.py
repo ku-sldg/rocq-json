@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate LaTeX result snippets for the ATVA tool paper.
+"""Generate LaTeX result snippets for the tool paper.
 
 The script intentionally reads the same machine-readable files produced by the
 artifact workflow.  This keeps paper tables tied to reproducible runs instead
@@ -101,7 +101,9 @@ def percentile(values: list[float], pct: float) -> float | None:
 
 
 def timing_table_rows(rows: list[dict[str, str]], limit: int) -> list[str]:
-    sorted_rows = sorted(rows, key=lambda row: float(row["rocq_time_seconds"]), reverse=True)
+    sorted_rows = sorted(
+        rows, key=lambda row: float(row["rocq_time_seconds"]), reverse=True
+    )
     out: list[str] = []
     for row in sorted_rows[:limit]:
         out.append(
@@ -136,7 +138,9 @@ def failure_example_rows(rows: list[dict[str, str]]) -> list[str]:
                     latex_escape(category),
                     str(count),
                     latex_escape(row.get("logical_name", "")),
-                    latex_escape(CATEGORY_RATIONALES.get(category, CATEGORY_RATIONALES["other"])),
+                    latex_escape(
+                        CATEGORY_RATIONALES.get(category, CATEGORY_RATIONALES["other"])
+                    ),
                 ]
             )
             + r" \\"
@@ -151,10 +155,7 @@ def extraction_summary(path: Path) -> tuple[dict[str, str], list[dict[str, str]]
     by_name: dict[str, list[float]] = {}
     for row in rows:
         by_name.setdefault(row["benchmark"], []).append(float(row["seconds"]))
-    summary = {
-        f"{name}_runs": str(len(values))
-        for name, values in by_name.items()
-    }
+    summary = {f"{name}_runs": str(len(values)) for name, values in by_name.items()}
     return summary, rows
 
 
@@ -162,7 +163,14 @@ def extraction_comparison_rows(rows: list[dict[str, str]]) -> list[str]:
     by_name: dict[str, list[float]] = {}
     for row in rows:
         by_name.setdefault(row["benchmark"], []).append(float(row["seconds"]))
-    preferred_bases = ["enum256", "point2d", "userrole", "serverconfig", "instruction", "bintree"]
+    preferred_bases = [
+        "enum256",
+        "point2d",
+        "userrole",
+        "serverconfig",
+        "instruction",
+        "bintree",
+    ]
     all_bases = {name.rsplit("_", 1)[0] for name in by_name}
     bases = preferred_bases + sorted(all_bases.difference(preferred_bases))
     out: list[str] = []
@@ -189,9 +197,17 @@ def extraction_comparison_rows(rows: list[dict[str, str]]) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bench-dir", type=Path, default=Path("_build/jsonifiable-stdlib-bench"))
-    parser.add_argument("--extraction-csv", type=Path, default=Path("_build/default/extracting/extraction_bench.csv"))
-    parser.add_argument("--out", type=Path, default=Path("write_up/generated/results.tex"))
+    parser.add_argument(
+        "--bench-dir", type=Path, default=Path("_build/jsonifiable-stdlib-bench")
+    )
+    parser.add_argument(
+        "--extraction-csv",
+        type=Path,
+        default=Path("_build/default/extracting/extraction_bench.csv"),
+    )
+    parser.add_argument(
+        "--out", type=Path, default=Path("write_up/generated/results.tex")
+    )
     parser.add_argument("--top", type=int, default=8)
     args = parser.parse_args()
 
@@ -219,29 +235,65 @@ def main() -> int:
         command("JsonifiableDiscovered", summary.get("discovered", "n/a")),
         command("JsonifiableProbed", summary.get("probed", "n/a")),
         command("JsonifiableSkipped", skipped_total),
-        command("JsonifiableSkippedParameterizedModule", skipped_categories.get("parameterized-module-scope", 0)),
-        command("JsonifiableSkippedModuleType", skipped_categories.get("module-type-scope", 0)),
+        command(
+            "JsonifiableSkippedParameterizedModule",
+            skipped_categories.get("parameterized-module-scope", 0),
+        ),
+        command(
+            "JsonifiableSkippedModuleType",
+            skipped_categories.get("module-type-scope", 0),
+        ),
         command("JsonifiableProbeSuccesses", summary.get("probe_successes", "n/a")),
         command("JsonifiableProbeFailures", summary.get("probe_failures", "n/a")),
         command("JsonifiableProbeTimeouts", summary.get("probe_timeouts", "n/a")),
         command("JsonifiableTimedDerivations", summary.get("timed_derivations", "n/a")),
-        command("JsonifiableBenchmarkWallSeconds", fmt_seconds(summary.get("benchmark_wall_seconds"))),
-        command("JsonifiableDerivationSumSeconds", fmt_seconds(summary.get("sum_rocq_time_seconds"))),
-        command("JsonifiableDerivationMeanSeconds", fmt_seconds(summary.get("mean_rocq_time_seconds"))),
-        command("JsonifiableDerivationMedianSeconds", fmt_seconds(statistics.median(times) if times else None)),
-        command("JsonifiableDerivationPNineZeroSeconds", fmt_seconds(percentile(times, 0.90))),
-        command("JsonifiableDerivationMaxSeconds", fmt_seconds(summary.get("max_rocq_time_seconds"))),
+        command(
+            "JsonifiableBenchmarkWallSeconds",
+            fmt_seconds(summary.get("benchmark_wall_seconds")),
+        ),
+        command(
+            "JsonifiableDerivationSumSeconds",
+            fmt_seconds(summary.get("sum_rocq_time_seconds")),
+        ),
+        command(
+            "JsonifiableDerivationMeanSeconds",
+            fmt_seconds(summary.get("mean_rocq_time_seconds")),
+        ),
+        command(
+            "JsonifiableDerivationMedianSeconds",
+            fmt_seconds(statistics.median(times) if times else None),
+        ),
+        command(
+            "JsonifiableDerivationPNineZeroSeconds",
+            fmt_seconds(percentile(times, 0.90)),
+        ),
+        command(
+            "JsonifiableDerivationMaxSeconds",
+            fmt_seconds(summary.get("max_rocq_time_seconds")),
+        ),
         command("JsonifiableSuccessInductives", kinds.get("Inductive", 0)),
         command("JsonifiableSuccessVariants", kinds.get("Variant", 0)),
-        command("JsonifiableSuccessRecords", kinds.get("Record", 0) + kinds.get("Structure", 0)),
+        command(
+            "JsonifiableSuccessRecords",
+            kinds.get("Record", 0) + kinds.get("Structure", 0),
+        ),
         command("JsonifiableSuccessCorelib", libraries.get("Corelib", 0)),
         command("JsonifiableSuccessStdlib", libraries.get("Stdlib", 0)),
-        command("JsonifiableExtractionGeneratedRuns", extraction.get("enum256_generated_runs", "n/a")),
-        command("JsonifiableExtractionHandwrittenRuns", extraction.get("enum256_handwritten_runs", "n/a")),
+        command(
+            "JsonifiableExtractionGeneratedRuns",
+            extraction.get("enum256_generated_runs", "n/a"),
+        ),
+        command(
+            "JsonifiableExtractionHandwrittenRuns",
+            extraction.get("enum256_handwritten_runs", "n/a"),
+        ),
         "",
         r"\newcommand{\JsonifiableFailureRows}{%",
     ]
-    for category, count in sorted(summary.get("failure_categories", {}).items(), key=lambda item: (-item[1], item[0])):
+    for category, count in sorted(
+        summary.get("failure_categories", {}).items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
         lines.append(f"{latex_escape(category)} & {count}" + r" \\")
     lines.extend(
         [
@@ -250,13 +302,19 @@ def main() -> int:
             r"\newcommand{\JsonifiableSkippedRows}{%",
         ]
     )
-    for category, count in sorted(skipped_categories.items(), key=lambda item: (-item[1], item[0])):
+    for category, count in sorted(
+        skipped_categories.items(), key=lambda item: (-item[1], item[0])
+    ):
         lines.append(
             " & ".join(
                 [
                     latex_escape(category),
                     str(count),
-                    latex_escape(SKIP_RATIONALES.get(category, "The declaration was recorded but not probed.")),
+                    latex_escape(
+                        SKIP_RATIONALES.get(
+                            category, "The declaration was recorded but not probed."
+                        )
+                    ),
                 ]
             )
             + r" \\"
