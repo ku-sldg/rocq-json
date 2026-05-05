@@ -502,15 +502,13 @@ The JSON representation is also intentionally modest.  The paper evaluates the
 \emph{derivation method and the certified round-trip property}, not complete
 adherence to the JSON RFC or interoperability with every external JSON parser.
 
-The main extensions are indexed families, proof-bearing data, and deeper
-library discovery.  Indexed families may require fixed-index instances or
+The main extensions are indexed families and proof-bearing data.
+Indexed families may require fixed-index instances or
 dependent-pair decoding; proof fields likely require erasure plus user-supplied
 reconstruction lemmas.  More generally, support for dependent data should make
 the extraction boundary explicit: when proofs or indices are erased at runtime,
 the right JSON format may be a projection of the computational content rather
-than a serialization of the full source-level dependent value.  A Rocq-assisted
-discovery phase could classify module scopes directly from Rocq's environment
-rather than relying on source syntax.
+than a serialization of the full source-level dependent value.
 
 \section{Conclusion}
 
