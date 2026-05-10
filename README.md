@@ -23,6 +23,7 @@ A Rocq JSON Library, built with automation and extractability in mind
 - Compatible OCaml versions: 4.12 or later
 - Additional dependencies:
   - [RocqCandy](https://github.com/ku-sldg/rocq-candy)
+  - [Rocq-Elpi](https://github.com/LPCIC/coq-elpi)
   - [Dune](https://dune.build) 3.17 or later
 - Related publication(s): none
 
@@ -58,5 +59,4 @@ The shortest reproducible path is:
 docker build -f Dockerfile.artifact -t rocq-json-artifact .
 docker run --rm rocq-json-artifact
 ```
-
 

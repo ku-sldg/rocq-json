@@ -9,12 +9,12 @@
 \newcommand{\JsonifiableProbeFailures}{230}
 \newcommand{\JsonifiableProbeTimeouts}{0}
 \newcommand{\JsonifiableTimedDerivations}{81}
-\newcommand{\JsonifiableBenchmarkWallSeconds}{5.21}
-\newcommand{\JsonifiableDerivationSumSeconds}{4.29}
-\newcommand{\JsonifiableDerivationMeanSeconds}{0.053}
-\newcommand{\JsonifiableDerivationMedianSeconds}{0.034}
-\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.112}
-\newcommand{\JsonifiableDerivationMaxSeconds}{0.521}
+\newcommand{\JsonifiableBenchmarkWallSeconds}{5.26}
+\newcommand{\JsonifiableDerivationSumSeconds}{4.34}
+\newcommand{\JsonifiableDerivationMeanSeconds}{0.054}
+\newcommand{\JsonifiableDerivationMedianSeconds}{0.033}
+\newcommand{\JsonifiableDerivationPNineZeroSeconds}{0.101}
+\newcommand{\JsonifiableDerivationMaxSeconds}{0.500}
 \newcommand{\JsonifiableSuccessInductives}{50}
 \newcommand{\JsonifiableSuccessVariants}{17}
 \newcommand{\JsonifiableSuccessRecords}{14}
@@ -39,14 +39,14 @@ module-type-scope & 7 & The declaration appears in a module type/signature, whic
 }
 
 \newcommand{\JsonifiableSlowestRows}{%
-Corelib.Init.Byte.byte & Inductive & 0.521 \\
-Stdlib.rtauto.Rtauto.proof & Inductive & 0.182 \\
-Stdlib.btauto.Reflect.formula & Inductive & 0.174 \\
-Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.166 \\
-Corelib.Floats.FloatClass.float\_class & Variant & 0.142 \\
-Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.137 \\
-Stdlib.Sorting.Heap.Tree & Inductive & 0.125 \\
-Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.116 \\
+Corelib.Init.Byte.byte & Inductive & 0.500 \\
+Stdlib.micromega.ZMicromega.ZArithProof & Inductive & 0.190 \\
+Stdlib.rtauto.Rtauto.proof & Inductive & 0.180 \\
+Stdlib.btauto.Reflect.formula & Inductive & 0.178 \\
+Stdlib.micromega.RingMicromega.Psatz & Inductive & 0.139 \\
+Corelib.Floats.FloatClass.float\_class & Variant & 0.136 \\
+Stdlib.setoid\_ring.Field\_theory.FExpr & Inductive & 0.120 \\
+Stdlib.Sorting.Heap.Tree & Inductive & 0.118 \\
 }
 
 \newcommand{\JsonifiableFailureExampleRows}{%
@@ -60,10 +60,10 @@ coinductive-not-supported & 1 & Stdlib.Streams.Streams.Stream & The declaration 
 }
 
 \newcommand{\JsonifiableExtractionComparisonRows}{%
-enum256 & 55.843 & 55.628 & +0.4\% \\
-point2d & 1.282 & 1.378 & -7.0\% \\
-userrole & 2.316 & 3.285 & -29.5\% \\
-serverconfig & 0.749 & 1.960 & -61.8\% \\
-instruction & 2.213 & 3.491 & -36.6\% \\
-bintree & 4.180 & 6.416 & -34.9\% \\
+enum256 & 43.917 & 43.052 & +2.0\% \\
+point2d & 1.066 & 1.170 & -8.9\% \\
+userrole & 1.790 & 2.648 & -32.4\% \\
+serverconfig & 0.635 & 1.525 & -58.4\% \\
+instruction & 1.733 & 2.666 & -35.0\% \\
+bintree & 3.321 & 5.301 & -37.3\% \\
 }

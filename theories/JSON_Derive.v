@@ -7,7 +7,7 @@ From rocq_json_derivers Extra Dependency "jsonifiable.elpi" as jsonifiable.
 From elpi.apps.derive.elpi Extra Dependency "derive_synterp_hook.elpi" as derive_synterp_hook.
 
 
-From RocqJSON Require Import JSON JSON_Error_Strings.
+From RocqJSON Require Export JSON JSON_Error_Strings.
 From Stdlib Require Import Lia.
 From Stdlib Require Import List.
 

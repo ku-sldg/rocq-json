@@ -154,25 +154,10 @@ Global Instance Jsonifiable_nat : Jsonifiable nat := {
   canonical_jsonification := fun n => eq_refl
 }.
 
-(* NOTE: This is commented out because it will override TC instances for
-Map A B, which is not what we want! A possible (and maybe optimal solution) 
-would be to have the Map's be behind module interfaces and then the Jsonifiable
-instance shouldn't apply anymore
-
-Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
-eapply Build_Jsonifiable with
-  (to_JSON   := fun l => JSON_Array (map to_JSON l))
-  (from_JSON := fun js => 
-                  match js with 
-                  | JSON_Array l => 
-                      result_map from_JSON l
-                  | _ => err (errStr_json_wrong_type "list" js)
-                  end).
-induction a; jsonifiable_hammer.
-Qed. *)
-
-(* The List JSONIFIABLE Class *)
-Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A).
+(* The List JSONIFIABLE Class.
+   Keep this behind the Map encoders: RocqCandy's Map is a list alias, so the
+   generic list encoder must not win for Map A B. *)
+Global Instance Jsonifiable_list {A} `{Jsonifiable A} : Jsonifiable (list A) | 100.
 eapply Build_Jsonifiable with
   (to_JSON   := fun l => JSON_Array (map to_JSON l))
   (from_JSON := fun js => 
@@ -261,5 +246,12 @@ eapply Build_Jsonifiable with (
                     end)).
 induction a; ff with simpl_json.
 Defined.
+
+Example Jsonifiable_map_prefers_object_encoder :
+  match to_JSON ([("x", 1)] : Map string nat) with
+  | JSON_Object _ => true
+  | _ => false
+  end = true.
+Proof. reflexivity. Qed.
 
 Close Scope string_scope.

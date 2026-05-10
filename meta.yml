@@ -28,6 +28,10 @@ dependencies:
       name: "rocq-candy"
       version: '{ >= "0.6.0" }'
       lib_name: "RocqCandy"
+  - description: "[Rocq-Elpi](https://github.com/LPCIC/coq-elpi)"
+    opam:
+      name: "rocq-elpi"
+      lib_name: "elpi"
 coq_trans_deps_workaround: true # Default false if we dont need libraries with transitive dependencies, but if we do, then we need to set this to true
 # This is due to https://github.com/ocaml/dune/issues/11483
 

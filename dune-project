@@ -1,7 +1,4 @@
-(lang dune 3.21)
-
-(warnings
- (deprecated_coq_lang disabled))
+(lang dune 3.17)
 
 (using coq 0.8)
 

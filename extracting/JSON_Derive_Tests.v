@@ -1,4 +1,4 @@
-From RocqJSON Require Import JSON JSON_Derive JSON_Error_Strings.
+From RocqJSON Require Import JSON JSON_Derive.
 From Stdlib Require Import List.
 
 Local Open Scope string_scope.

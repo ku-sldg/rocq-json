@@ -1119,7 +1119,7 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt ListIndt), ElemTy]) 
   list-ty PairStrJsonTy MapStrJsonTy,
   coq.locate "result_map" (const RMapC),
   coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_no_constructor_name_string" (const ErrC2),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrC2),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrC2)],
   build-nested-from-json-deser Ind SelfRef ElemTy ElemDeser,
   result-ty ListElemTy StrTy ListElemResultTy,
@@ -1153,7 +1153,7 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt OptionIndt), ElemTy]
   coq.locate "err" (indc ErrC),
   coq.locate "Corelib.Init.Datatypes.Some" (indc SomeC),
   coq.locate "Corelib.Init.Datatypes.None" (indc NoneC),
-  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrNoConsC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   (if (is-self-reference Ind ElemTy)
      (ElemDeser = SelfRef)
@@ -1236,7 +1236,7 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt ProdIndt), A, B]) Re
   coq.locate "res" (indc ResC),
   coq.locate "pair" (indc PairGR),
   coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_no_constructor_name_string" (const ErrC2),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrC2),
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrC2)],
   (if (type-contains-ind Ind A)
     (build-nested-from-json-deser Ind SelfRef A DeserA)
@@ -1397,7 +1397,7 @@ build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity Arg
 pred build-obj-dispatch i:inductive, i:list term, i:term, i:term, i:list json-ctor-view, i:term, i:term, i:term, o:term.
 build-obj-dispatch Ind Params Self ResultTy CtorViews Tag Kvs Default Body :-
   coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_unrecognized_constructor" (const ErrStrC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_unrecognized_constructor" (const ErrStrC),
   nat-ty NatTy,
   option-ty NatTy OptionNatTy,
   ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
@@ -1440,8 +1440,8 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
   coq.mk-app (global (indt Ind)) Params IndTy,
   result-ty IndTy StrTy ResultTy,
   coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
-  coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_unrecognized_constructor"   (const ErrUnrecC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
 
@@ -1678,8 +1678,8 @@ build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
   pair-ty StrTy JSONTy PairStrJsonTy,
   list-ty PairStrJsonTy MapStrJsonTy,
   coq.locate "err" (indc ErrC),
-  coq.locate "err_str_json_no_constructor_name_string" (const ErrNoConsC),
-  coq.locate "err_str_json_unrecognized_constructor"   (const ErrUnrecC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrNoConsC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_unrecognized_constructor"   (const ErrUnrecC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
   ErrUnrec  = app [global (indc ErrC), _, _, global (const ErrUnrecC)],
   @pi-decl `js` JSONTy JS\
