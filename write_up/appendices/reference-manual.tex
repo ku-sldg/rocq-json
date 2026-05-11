@@ -1,0 +1,76 @@
+\section{Reference Manual}
+\label{app:reference}
+
+\subsection{Public Contract}
+
+\texttt{Jsonifiable} packages an encoder, decoder, and one checked theorem:
+
+\begin{lstlisting}[language=Coq]
+Class Jsonifiable (A : Type) := {
+  to_JSON     : A -> JSON;
+  from_JSON   : JSON -> Result A string;
+  canonical_jsonification : forall (a : A), from_JSON (to_JSON a) = res a
+}.
+\end{lstlisting}
+
+The theorem states encoder-to-decoder preservation.  It does not state that
+every JSON value accepted by the decoder is the unique canonical representation
+for the type.
+
+\subsection{Supported Declarations}
+
+The deriver targets computational declarations in \texttt{Type} or
+\texttt{Set}.  It supports ordinary enumerations, algebraic datatypes, records,
+parameterized types whose parameters have \texttt{Jsonifiable} instances, and
+structural recursion over the target.  The current implementation also supports
+a conservative set of nested recursive occurrences through standard containers
+such as lists, options, and products.
+
+Unsupported declarations fail without registering a partial instance.  Current
+non-targets or limitations include targets in \texttt{Prop}, dependent
+constructor fields, indexed families, proof fields, function-valued fields,
+sort-valued fields, coinductive declarations, arbitrary nested recursion, and
+mutual recursion.
+
+\subsection{Encoding Conventions}
+
+\begin{center}
+  \small
+  \begin{tabular}{p{0.40\linewidth}p{0.58\linewidth}}
+    \toprule
+    Rocq shape                     & JSON shape                                                                                \\
+    \midrule
+    Nullary constructor            & JSON string containing the constructor name.                                              \\
+    Constructor with fields        & Singleton JSON object keyed by constructor name.                                          \\
+    Record                         & JSON object keyed by projection names.                                                    \\
+    Named constructor argument     & Field key is the binder name.                                                             \\
+    Anonymous constructor argument & Field key is derived from the argument type head and disambiguated with numeric suffixes. \\
+    Type parameter                 & Instance argument requiring a \texttt{Jsonifiable} dictionary.                            \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+Primitive and library instances can choose representation-specific encodings.
+For example, \texttt{nat} is encoded as a JSON number rather than as the unary
+constructor structure of Rocq natural numbers.
+
+\subsection{Generated Artifacts}
+
+For a declaration \texttt{T}, a successful command
+\texttt{Elpi derive.jsonifiable T} adds definitions for the encoder, decoder,
+round-trip proof, and registered instance.  The visible instance name follows
+the generated-name convention used in the examples, such as
+\texttt{UserRole\_Jsonifiable} or \texttt{BinTree\_Jsonifiable}.  Users should
+normally rely on typeclass resolution and the public operations shown in the
+\texttt{Jsonifiable} class rather than depending on internal helper names.
+
+\subsection{Interpreting Failure Categories}
+
+The benchmark artifact records failures with categories intended for triage.
+Some categories are semantic non-targets for a generic JSON serializer:
+propositions are erased at extraction, arbitrary functions do not have a
+canonical finite representation, sorts are type-level objects, and coinductive
+values may be infinite.  Other categories are implementation limitations:
+dependent fields, indexed families, proof-bearing computational wrappers,
+arbitrary nested recursion, and mutual recursion require additional contracts or
+proof-generation techniques.

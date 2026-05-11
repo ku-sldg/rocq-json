@@ -1,0 +1,262 @@
+\section{Benchmarking Details}
+\label{app:benchmarking}
+
+This appendix records the benchmark methodology and supporting code behind
+Section~\ref{sec:evaluation}.  The intent is reproducibility rather than a new
+claim beyond the main paper: the artifact reports both successful derivations
+and unsupported cases, and it compares generated serializers against handwritten
+Rocq baselines extracted through the same pipeline.
+
+\subsection{Applicability Benchmark}
+
+The artifact scans installed Corelib and Stdlib sources for inductive-like
+declarations, probes each candidate in isolation, records diagnostics, and then
+compiles a single benchmark file containing all successful derivations.  This
+workflow is deliberately conservative: unsupported declarations remain visible
+as categorized failures.  Declarations that are visible in source but are not
+closed derivation targets, such as declarations inside functor bodies or module
+signatures, are recorded separately rather than discarded.
+
+\begin{table}
+  \centering
+  \caption{Corelib/Stdlib applicability and failure categories.}
+  \label{tab:app-detailed-applicability}
+  \small
+  \begin{minipage}[t]{0.47\linewidth}
+    \centering
+    \begin{tabular}{p{0.72\linewidth}r}
+      \toprule
+      Metric                       & Count                        \\
+      \midrule
+      Discovered declarations      & \JsonifiableDiscovered       \\
+      Recorded, not probed         & \JsonifiableSkipped          \\
+      Probed declarations          & \JsonifiableProbed           \\
+      Successful probes            & \JsonifiableProbeSuccesses   \\
+      Probe failures               & \JsonifiableProbeFailures    \\
+      Probe timeouts               & \JsonifiableProbeTimeouts    \\
+      Timed successful derivations & \JsonifiableTimedDerivations \\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.47\linewidth}
+    \centering
+    \begin{tabular}{p{0.78\linewidth}r}
+      \toprule
+      Failure category & Count \\
+      \midrule
+      \JsonifiableFailureRows
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
+\end{table}
+
+The category names in Table~\ref{tab:app-detailed-applicability} are a triage
+device, not a claim that every failed probe is a tool defect.  Some declarations
+are clear non-targets for serialization: propositions are erased by extraction,
+functions have no canonical JSON representation, sort-valued fields contain
+types rather than values, and coinductive values may be infinite.  The genuine
+current limitations are concentrated around dependent data, where decoding must
+reconstruct values whose types depend on earlier fields or external indices.
+Table~\ref{tab:failure-examples} gives one representative declaration for each
+category and the rationale used by the artifact.
+
+\begin{table}
+  \centering
+  \caption{Representative failure examples and classification rationale.}
+  \label{tab:failure-examples}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{p{0.43\linewidth}p{0.53\linewidth}}
+    \toprule
+    Category and example & Rationale                                                                                                  \\
+    \midrule
+    \texttt{prop-target-not-supported}: \texttt{or}
+                         & The target lives in \texttt{Prop}; propositions are erased at extraction and are not runtime data.         \\
+    \texttt{dependent-field-not-supported}: \texttt{sig}
+                         & A later field depends on an earlier witness; decoding must reconstruct a value and its dependent type.     \\
+    \texttt{indexed-family-not-supported}: \texttt{reflect}
+                         & The declaration is indexed by values; decoding requires recovering the index or fixing it in the instance. \\
+    \texttt{function-field-not-supported}: \texttt{implies}
+                         & Arbitrary functions have no canonical data representation in JSON or ordinary serializers.                 \\
+    \texttt{proof-field-not-supported}: \texttt{sumbool}
+                         & A computational wrapper carries proof evidence; decoding requires proof erasure or reconstruction.         \\
+    \texttt{sort-field-not-supported}: \texttt{Tlist}
+                         & Constructor fields contain sorts such as \texttt{Type}; these are types, not JSON values.                  \\
+    \texttt{coinductive-not-supported}: \texttt{Stream}
+                         & Potentially infinite data needs an explicit depth-bounded or lazy serialization contract.                  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The non-target group is not a design choice particular to
+\texttt{rocq-json}: there is no runtime proposition to serialize after
+extraction; arbitrary functions do not have a canonical finite data
+representation; sorts such as \texttt{Type} and \texttt{Set} are not ordinary
+values; and coinductive data needs a separate bounded or lazy contract.  These
+account for 158 probe failures.  The remaining large categories are dependent
+fields and indexed families, 69 cases in total.  Those are real future work:
+the JSON decoder would have to recover enough information to reconstruct a
+dependent value, or the deriver would need a fixed-index or sigma-style
+encoding.  The three proof-field cases sit on the same boundary: the outer type
+is computational, but successful decoding would require erasing or rebuilding
+proof evidence that extraction normally removes.
+
+The \JsonifiableSkipped{} recorded-but-not-probed declarations are reported in
+the artifact as well: \JsonifiableSkippedParameterizedModule{} occur inside
+parameterized modules or functor bodies, such as the raw tree declaration in
+\texttt{FMapAVL}, and
+\JsonifiableSkippedModuleType{} occur inside module types or signatures, such
+as the tree declaration in \texttt{MSetGenTree.Ops}.  These are genuine source
+declarations, but not closed global references to which the deriver can be
+applied directly \emph{outside the functor}.
+
+Excluding the \JsonifiableSkipped{} functor/signature declarations that are not
+valid deriver inputs and the 158 non-target declarations, the tool successfully
+derives instances for \JsonifiableProbeSuccesses{} of 153 semantically eligible
+declarations, roughly 53\% coverage on the well-defined target fragment, with
+the remaining gap concentrated in dependent and indexed types.
+
+\subsection{Derivation Time}
+
+The combined successful benchmark records Rocq's \texttt{Time} output for each
+derived instance.  In the reported run, the combined benchmark compiled
+successfully with wall-clock time \JsonifiableBenchmarkWallSeconds{} seconds;
+the sum of Rocq-reported derivation transactions was
+\JsonifiableDerivationSumSeconds{} seconds.  The mean derivation time was
+\JsonifiableDerivationMeanSeconds{} seconds, the median was
+\JsonifiableDerivationMedianSeconds{} seconds, the 90th percentile was
+\JsonifiableDerivationPNineZeroSeconds{} seconds, and the maximum was
+\JsonifiableDerivationMaxSeconds{} seconds.
+
+\begin{table}
+  \centering
+  \caption{Slowest successful derivations in the broad benchmark.}
+  \label{tab:slowest-derivations}
+  \begin{tabular}{l @{\hspace{0.25cm}} lr}
+    \toprule
+    Declaration & Kind & Seconds \\
+    \midrule
+    \JsonifiableSlowestRows
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The slowest success is \texttt{byte}, a 256-constructor Corelib enumeration.
+The remaining cost is dominated by Rocq-side derivation and proof construction.
+After extraction, the corresponding dispatch path is close to the handwritten
+Rocq baseline used in the extracted-code benchmark.
+
+\subsection{Extracted Code Performance}
+
+The extraction benchmark compares generated definitions against handwritten
+Rocq definitions after both have been extracted to OCaml.  This keeps the
+comparison in the same source language and extraction pipeline.  The benchmark
+covers several shapes: a 256-constructor enumeration, a tuple-like constructor,
+a flat record, two mixed sums with nullary and field-bearing constructors, and a
+recursive binary tree.  Each benchmark was run
+\JsonifiableExtractionGeneratedRuns{} times.  The enum benchmark serializes and
+deserializes every constructor; the other benchmarks run many iterations over
+representative values.  The handwritten baselines were written by the authors in
+Rocq and extracted through the same pipeline; they were not independently
+optimized.
+
+\subsection{Round-Trip Benchmark Rocq Code}
+
+The extracted-code benchmarks in Table~\ref{tab:extraction} are defined in the
+extraction benchmark source.  The generated cases use
+\texttt{Elpi derive.jsonifiable}; the primed instances below are the handwritten
+Rocq baselines extracted and timed by the same harness.
+
+\noindent\textbf{Benchmark Types}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=26,
+  lastline=45,
+  breaklines=true,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=68,
+  lastline=76,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=165,
+  lastline=168,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=425,
+  lastline=458,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\noindent\textbf{Handwritten Rocq Baselines}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=257,
+  lastline=383,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=461,
+  lastline=471,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+$$\vdots$$
+\lstinputlisting[
+  language=Coq,
+  firstline=590,
+  lastline=601,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+$$\vdots$$
+\lstinputlisting[
+  language=Coq,
+  firstline=720,
+  lastline=724,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}
+
+\noindent\textbf{Extraction Command}
+
+\lstinputlisting[
+  language=Coq,
+  firstline=726,
+  lastline=734,
+  breaklines=true,
+  aboveskip=0pt,
+  belowskip=0pt,
+  basicstyle=\ttfamily\scriptsize
+]{../extracting/JSON_Derive_Tests.v}

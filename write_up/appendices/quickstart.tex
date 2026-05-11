@@ -1,0 +1,54 @@
+\section{Quick Start Guide}
+\label{app:quickstart}
+
+Install the released package with opam:
+
+\begin{lstlisting}
+opam repo add -a --set-default ku-sldg/opam-repo https://github.com/ku-sldg/opam-repo.git
+opam repo add coq-released https://coq.inria.fr/opam/released
+opam install rocq-json
+\end{lstlisting}
+
+Import the JSON library and deriver, define a datatype, and invoke the derive
+command:
+
+\begin{lstlisting}[language=Coq]
+From RocqJSON Require Import JSON JSON_Derive.
+
+Inductive UserRole : Type :=
+| Admin
+| Moderator (level : nat)
+| Guest.
+
+Elpi derive.jsonifiable UserRole.
+
+Example moderator_roundtrip :
+  from_JSON (to_JSON (Moderator 2)) = res (Moderator 2) :=
+  canonical_jsonification (Moderator 2).
+\end{lstlisting}
+
+For a parameterized type, derive the type constructor.  The generated instance
+takes serializers for the parameters:
+
+\begin{lstlisting}[language=Coq]
+Inductive BinTree (A : Type) : Type :=
+| BinLeaf
+| BinNode (left : BinTree A) (value : A) (right : BinTree A).
+
+Elpi derive.jsonifiable BinTree.
+
+Check BinTree_Jsonifiable :
+  forall A, Jsonifiable A -> Jsonifiable (BinTree A).
+\end{lstlisting}
+
+If derivation fails, the command raises an ordinary Rocq error.  Recognized
+unsupported shapes are reported explicitly, for example dependent constructor
+fields, indexed families, proof fields, function-valued fields, sort-valued
+fields, coinductive declarations, or targets in \texttt{Prop}.  A typical
+dependent-field failure looks like:
+
+\begin{lstlisting}
+Error:
+derive.jsonifiable: dependent constructor fields are not supported by
+Jsonifiable. Field: ... type head: unknown type constructor
+\end{lstlisting}
