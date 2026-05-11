@@ -41,11 +41,12 @@ Check BinTree_Jsonifiable :
   forall A, Jsonifiable A -> Jsonifiable (BinTree A).
 \end{lstlisting}
 
-If derivation fails, the command raises an ordinary Rocq error.  Recognized
-unsupported shapes are reported explicitly, for example dependent constructor
-fields, indexed families, proof fields, function-valued fields, sort-valued
-fields, coinductive declarations, or targets in \texttt{Prop}.  A typical
-dependent-field failure looks like:
+If derivation is requested outside the supported contract, the command raises an
+ordinary Rocq error.  Deliberate non-targets include targets in \texttt{Prop},
+function-valued fields, sort-valued fields, and coinductive declarations.
+Current limitations include dependent constructor fields, indexed families, and
+proof-bearing computational wrappers.  A typical dependent-field diagnostic
+looks like:
 
 \begin{lstlisting}
 Error:

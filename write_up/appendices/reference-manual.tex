@@ -26,10 +26,11 @@ structural recursion over the target.  The current implementation also supports
 a conservative set of nested recursive occurrences through standard containers
 such as lists, options, and products.
 
-Unsupported declarations fail without registering a partial instance.  Current
-non-targets or limitations include targets in \texttt{Prop}, dependent
-constructor fields, indexed families, proof fields, function-valued fields,
-sort-valued fields, coinductive declarations, arbitrary nested recursion, and
+Declarations outside the contract fail without registering a partial instance.
+Deliberate semantic non-targets include targets in \texttt{Prop},
+function-valued fields, sort-valued fields, and coinductive declarations.
+Current implementation limitations include dependent constructor fields, indexed
+families, proof-bearing computational wrappers, arbitrary nested recursion, and
 mutual recursion.
 
 \subsection{Encoding Conventions}
@@ -66,11 +67,11 @@ normally rely on typeclass resolution and the public operations shown in the
 
 \subsection{Interpreting Failure Categories}
 
-The benchmark artifact records failures with categories intended for triage.
-Some categories are semantic non-targets for a generic JSON serializer:
-propositions are erased at extraction, arbitrary functions do not have a
-canonical finite representation, sorts are type-level objects, and coinductive
-values may be infinite.  Other categories are implementation limitations:
-dependent fields, indexed families, proof-bearing computational wrappers,
-arbitrary nested recursion, and mutual recursion require additional contracts or
-proof-generation techniques.
+The benchmark artifact records non-success diagnostics with categories intended
+for triage.  Some categories are semantic non-targets for a generic JSON
+serializer: propositions are erased at extraction, arbitrary functions do not
+have a canonical finite representation, sorts are type-level objects, and
+coinductive values may be infinite.  Other categories are implementation
+limitations: dependent fields, indexed families, proof-bearing computational
+wrappers, arbitrary nested recursion, and mutual recursion require additional
+contracts or proof-generation techniques.

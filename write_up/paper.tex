@@ -207,41 +207,50 @@ We evaluate two practical questions: whether the deriver applies to a meaningful
 fragment of existing Rocq declarations, and whether generated code has the same
 general extracted-performance profile as direct handwritten Rocq serializers.
 The artifact rebuilds the project, scans installed Corelib/Stdlib sources,
-probes each candidate in isolation, compiles all successful probes together,
-runs extracted OCaml benchmarks against handwritten Rocq baselines, and
-regenerates the LaTeX macros used in this paper.  Appendix~\ref{app:benchmarking}
-gives the full methodology, diagnostic categories, and benchmark code.
+classifies declarations by whether the \texttt{Jsonifiable} contract is a
+well-defined request, compiles all successful target-fragment derivations
+together, runs extracted OCaml benchmarks against handwritten Rocq baselines,
+and regenerates the LaTeX macros used in this paper.
+Appendix~\ref{app:benchmarking} gives the full methodology, raw diagnostic
+categories, and benchmark code.
 
 \begin{table}
   \centering
-  \caption{Corelib/Stdlib applicability summary.}
+  \caption{Interpreted Corelib/Stdlib applicability.}
   \label{tab:applicability}
   \small
-  \begin{tabular}{lr@{\hspace{1cm}}lr}
+  \begin{tabular}{lr}
     \toprule
-    Metric                  & Count                     & Metric                     & Count \\
+    Metric & Count \\
     \midrule
-    Discovered declarations & \JsonifiableDiscovered
-                            & Probed declarations       & \JsonifiableProbed                 \\
-    Recorded, not probed    & \JsonifiableSkipped
-                            & Successful probes         & \JsonifiableProbeSuccesses         \\
-    Probe failures          & \JsonifiableProbeFailures
-                            & Probe timeouts            & \JsonifiableProbeTimeouts          \\
+    Discovered source declarations       & \JsonifiableDiscovered                   \\
+    Not closed deriver inputs            & \JsonifiableSkipped                      \\
+    Deliberate semantic non-targets      & \JsonifiableSemanticNonTargets           \\
+    Well-defined target-fragment inputs  & \JsonifiableTargetFragment               \\
+    Successful target-fragment derivations & \JsonifiableProbeSuccesses             \\
+    Current dependent/indexed/proof limitations & \JsonifiableDependentProofLimitations \\
+    Timeouts                             & \JsonifiableProbeTimeouts                \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The successful probes in Table~\ref{tab:applicability} include
+Table~\ref{tab:applicability} separates applicability from diagnostics.  The
+raw artifact log contains every scanner candidate and every rejected probe, but
+the correct denominator for tool applicability is not all closed declarations in
+Corelib/Stdlib.  Propositions, arbitrary functions, sort-valued fields, and
+coinductive data are deliberate semantic non-targets for generic runtime JSON
+serialization, while declarations inside functors or signatures are not closed
+global references to which the deriver can be applied directly.  After excluding
+those cases, the reported target fragment contains \JsonifiableTargetFragment{}
+inputs.  The tool derives \JsonifiableProbeSuccesses{} of them,
+\JsonifiableTargetCoverage{} coverage, with the remaining gap concentrated in
+dependent fields, indexed families, and proof-bearing computational wrappers.
+
+The successful derivations in Table~\ref{tab:applicability} include
 \JsonifiableSuccessInductives{} inductives, \JsonifiableSuccessVariants{}
 variants, and \JsonifiableSuccessRecords{} records or structures, split between
 Corelib (\JsonifiableSuccessCorelib{}) and Stdlib
-(\JsonifiableSuccessStdlib{}).  The broad benchmark is intentionally
-conservative: declarations inside functors or signatures are recorded but not
-treated as closed deriver inputs, and failures are categorized rather than
-discarded.  Many failures are semantic non-targets for this interface, such as
-propositions, function fields, sort-valued fields, and coinductive data.  The
-main remaining engineering gap is dependent data: dependent fields, indexed
-families, and proof-bearing computational wrappers.
+(\JsonifiableSuccessStdlib{}).
 
 Successful derivations are fast in the reported run.  The combined successful
 benchmark compiled in \JsonifiableBenchmarkWallSeconds{} seconds; the mean

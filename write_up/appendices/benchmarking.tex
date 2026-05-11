@@ -10,16 +10,18 @@ Rocq baselines extracted through the same pipeline.
 \subsection{Applicability Benchmark}
 
 The artifact scans installed Corelib and Stdlib sources for inductive-like
-declarations, probes each candidate in isolation, records diagnostics, and then
-compiles a single benchmark file containing all successful derivations.  This
-workflow is deliberately conservative: unsupported declarations remain visible
-as categorized failures.  Declarations that are visible in source but are not
-closed derivation targets, such as declarations inside functor bodies or module
-signatures, are recorded separately rather than discarded.
+declarations, records declarations that are not closed deriver inputs, probes
+closed candidates in isolation, records diagnostics, and then compiles a single
+benchmark file containing all successful derivations.  This workflow is
+deliberately conservative: semantic non-targets and unsupported target-fragment
+declarations remain visible as categorized diagnostics.  Declarations that are
+visible in source but are not closed derivation targets, such as declarations
+inside functor bodies or module signatures, are recorded separately rather than
+discarded.
 
 \begin{table}
   \centering
-  \caption{Corelib/Stdlib applicability and failure categories.}
+  \caption{Corelib/Stdlib raw applicability log and diagnostic categories.}
   \label{tab:app-detailed-applicability}
   \small
   \begin{minipage}[t]{0.47\linewidth}
@@ -32,7 +34,7 @@ signatures, are recorded separately rather than discarded.
       Recorded, not probed         & \JsonifiableSkipped          \\
       Probed declarations          & \JsonifiableProbed           \\
       Successful probes            & \JsonifiableProbeSuccesses   \\
-      Probe failures               & \JsonifiableProbeFailures    \\
+      Non-success diagnostics      & \JsonifiableProbeFailures    \\
       Probe timeouts               & \JsonifiableProbeTimeouts    \\
       Timed successful derivations & \JsonifiableTimedDerivations \\
       \bottomrule
@@ -42,7 +44,7 @@ signatures, are recorded separately rather than discarded.
     \centering
     \begin{tabular}{p{0.78\linewidth}r}
       \toprule
-      Failure category & Count \\
+      Diagnostic category & Count \\
       \midrule
       \JsonifiableFailureRows
       \bottomrule
@@ -51,11 +53,11 @@ signatures, are recorded separately rather than discarded.
 \end{table}
 
 The category names in Table~\ref{tab:app-detailed-applicability} are a triage
-device, not a claim that every failed probe is a tool defect.  Some declarations
-are clear non-targets for serialization: propositions are erased by extraction,
-functions have no canonical JSON representation, sort-valued fields contain
-types rather than values, and coinductive values may be infinite.  The genuine
-current limitations are concentrated around dependent data, where decoding must
+device, not a denominator for tool applicability.  Some declarations are clear
+non-targets for serialization: propositions are erased by extraction, functions
+have no canonical JSON representation, sort-valued fields contain types rather
+than values, and coinductive values may be infinite.  The genuine current
+limitations are concentrated around dependent data, where decoding must
 reconstruct values whose types depend on earlier fields or external indices.
 Table~\ref{tab:failure-examples} gives one representative declaration for each
 category and the rationale used by the artifact.
@@ -93,13 +95,14 @@ The non-target group is not a design choice particular to
 extraction; arbitrary functions do not have a canonical finite data
 representation; sorts such as \texttt{Type} and \texttt{Set} are not ordinary
 values; and coinductive data needs a separate bounded or lazy contract.  These
-account for 158 probe failures.  The remaining large categories are dependent
-fields and indexed families, 69 cases in total.  Those are real future work:
-the JSON decoder would have to recover enough information to reconstruct a
-dependent value, or the deriver would need a fixed-index or sigma-style
-encoding.  The three proof-field cases sit on the same boundary: the outer type
-is computational, but successful decoding would require erasing or rebuilding
-proof evidence that extraction normally removes.
+account for \JsonifiableSemanticNonTargets{} diagnostics that should be
+screened out before computing target-fragment coverage.  The remaining
+\JsonifiableDependentProofLimitations{} target-fragment diagnostics are
+dependent fields, indexed families, and proof-bearing computational wrappers.
+Those are real future work: the JSON decoder would have to recover enough
+information to reconstruct a dependent value, the deriver would need a
+fixed-index or sigma-style encoding, or proof-bearing data would need erasure
+plus reconstruction lemmas.
 
 The \JsonifiableSkipped{} recorded-but-not-probed declarations are reported in
 the artifact as well: \JsonifiableSkippedParameterizedModule{} occur inside
@@ -111,10 +114,11 @@ declarations, but not closed global references to which the deriver can be
 applied directly \emph{outside the functor}.
 
 Excluding the \JsonifiableSkipped{} functor/signature declarations that are not
-valid deriver inputs and the 158 non-target declarations, the tool successfully
-derives instances for \JsonifiableProbeSuccesses{} of 153 semantically eligible
-declarations, roughly 53\% coverage on the well-defined target fragment, with
-the remaining gap concentrated in dependent and indexed types.
+valid deriver inputs and the \JsonifiableSemanticNonTargets{} semantic
+non-targets, the tool successfully derives instances for
+\JsonifiableProbeSuccesses{} of \JsonifiableTargetFragment{} semantically
+eligible declarations, roughly \JsonifiableTargetCoverage{} coverage on the
+well-defined target fragment.
 
 \subsection{Derivation Time}
 
