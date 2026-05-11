@@ -219,17 +219,15 @@ categories, and benchmark code.
   \caption{Interpreted Corelib/Stdlib applicability.}
   \label{tab:applicability}
   \small
-  \begin{tabular}{lr}
+  \begin{tabular}{lr @{\hspace{1cm}} lr}
     \toprule
-    Metric & Count \\
+    Metric                          & Count                          &
+    Metric                          & Count                                                                                                  \\
     \midrule
-    Discovered source declarations       & \JsonifiableDiscovered                   \\
-    Not closed deriver inputs            & \JsonifiableSkipped                      \\
-    Deliberate semantic non-targets      & \JsonifiableSemanticNonTargets           \\
-    Well-defined target-fragment inputs  & \JsonifiableTargetFragment               \\
-    Successful target-fragment derivations & \JsonifiableProbeSuccesses             \\
-    Current dependent/indexed/proof limitations & \JsonifiableDependentProofLimitations \\
-    Timeouts                             & \JsonifiableProbeTimeouts                \\
+    Discovered source declarations  & \JsonifiableDiscovered         & Successful target derivations & \JsonifiableProbeSuccesses            \\
+    Not closed deriver inputs       & \JsonifiableSkipped            & Current limitations           & \JsonifiableDependentProofLimitations \\
+    Deliberate semantic non-targets & \JsonifiableSemanticNonTargets & Timeouts                      & \JsonifiableProbeTimeouts             \\
+    Well-defined target inputs      & \JsonifiableTargetFragment                                                                             \\
     \bottomrule
   \end{tabular}
 \end{table}
