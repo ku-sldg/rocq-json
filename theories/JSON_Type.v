@@ -1,4 +1,7 @@
 From RocqCandy Require Import All.
+From Stdlib Require Import List.
+
+Import ListNotations.
 
 Inductive JSON :=
 | JSON_Object   : Map string JSON -> JSON
@@ -6,6 +9,31 @@ Inductive JSON :=
 | JSON_String   : string -> JSON
 | JSON_Nat      : nat -> JSON
 | JSON_Boolean  : bool -> JSON.
+
+Inductive JSON_equiv : JSON -> JSON -> Prop :=
+| JSON_equiv_Object : forall (m1 m2 : Map string JSON),
+    NoDup (map fst m1) ->
+    NoDup (map fst m2) ->
+    (forall k, (exists v, lookup k m1 = Some v) <-> (exists v, lookup k m2 = Some v)) ->
+    (forall k v1 v2,
+      lookup k m1 = Some v1 ->
+      lookup k m2 = Some v2 ->
+      JSON_equiv v1 v2) ->
+    JSON_equiv (JSON_Object m1) (JSON_Object m2)
+| JSON_equiv_Object_assoc : forall (m1 m2 : Map string JSON),
+    Forall2
+      (fun p1 p2 => fst p1 = fst p2 /\ JSON_equiv (snd p1) (snd p2))
+      m1 m2 ->
+    JSON_equiv (JSON_Object m1) (JSON_Object m2)
+| JSON_equiv_Array : forall l1 l2,
+    Forall2 JSON_equiv l1 l2 ->
+    JSON_equiv (JSON_Array l1) (JSON_Array l2)
+| JSON_equiv_String : forall s,
+    JSON_equiv (JSON_String s) (JSON_String s)
+| JSON_equiv_Nat : forall n,
+    JSON_equiv (JSON_Nat n) (JSON_Nat n)
+| JSON_equiv_Boolean : forall b,
+    JSON_equiv (JSON_Boolean b) (JSON_Boolean b).
 
 Definition depth_js_array (ls:list JSON) (f:JSON -> nat) : nat := 
   fold_right (fun js acc => max acc (f js)) 0 ls.
@@ -83,6 +111,38 @@ Proof.
     eapply Wf_nat.well_founded_ltof.
   }
   eapply well_founded_ind; eauto.
+Qed.
+
+Theorem JSON_ind_depth (P : JSON -> Prop)
+  (f : forall js : JSON,
+    (forall js' : JSON, JSON_depth js' < JSON_depth js -> P js') ->
+    P js) :
+  forall js : JSON, P js.
+Proof.
+  assert (well_founded (fun j1 j2 => JSON_depth j1 < JSON_depth j2)). {
+    simpl in *.
+    eapply Wf_nat.well_founded_ltof.
+  }
+  eapply well_founded_ind; eauto.
+Qed.
+
+Lemma JSON_equiv_refl : forall js, JSON_equiv js js.
+Proof.
+  induction js using JSON_ind_better.
+  - eapply JSON_equiv_Object_assoc.
+    induction m as [|[k v] rest IHm]; simpl; constructor.
+    + simpl.
+      split.
+      * reflexivity.
+      * apply H; simpl; auto.
+    + apply IHm. intros v' Hin. apply H. simpl; auto.
+  - eapply JSON_equiv_Array.
+    induction l as [|x xs IHxs]; simpl; constructor.
+    + apply H; simpl; auto.
+    + apply IHxs. intros v Hin. apply H; simpl; auto.
+  - constructor.
+  - constructor.
+  - constructor.
 Qed.
 
 Definition map_eqb_eqb {A B} `{DecEq A} (dec_eq_b : IDecEq B) : IDecEq (Map A B).

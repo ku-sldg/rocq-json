@@ -52,38 +52,14 @@ let bool_jsonifiable =
 
 let enum_values =
   [
-    J.E00; J.E01; J.E02; J.E03; J.E04; J.E05; J.E06; J.E07;
-    J.E08; J.E09; J.E0A; J.E0B; J.E0C; J.E0D; J.E0E; J.E0F;
-    J.E10; J.E11; J.E12; J.E13; J.E14; J.E15; J.E16; J.E17;
-    J.E18; J.E19; J.E1A; J.E1B; J.E1C; J.E1D; J.E1E; J.E1F;
-    J.E20; J.E21; J.E22; J.E23; J.E24; J.E25; J.E26; J.E27;
-    J.E28; J.E29; J.E2A; J.E2B; J.E2C; J.E2D; J.E2E; J.E2F;
-    J.E30; J.E31; J.E32; J.E33; J.E34; J.E35; J.E36; J.E37;
-    J.E38; J.E39; J.E3A; J.E3B; J.E3C; J.E3D; J.E3E; J.E3F;
-    J.E40; J.E41; J.E42; J.E43; J.E44; J.E45; J.E46; J.E47;
-    J.E48; J.E49; J.E4A; J.E4B; J.E4C; J.E4D; J.E4E; J.E4F;
-    J.E50; J.E51; J.E52; J.E53; J.E54; J.E55; J.E56; J.E57;
-    J.E58; J.E59; J.E5A; J.E5B; J.E5C; J.E5D; J.E5E; J.E5F;
-    J.E60; J.E61; J.E62; J.E63; J.E64; J.E65; J.E66; J.E67;
-    J.E68; J.E69; J.E6A; J.E6B; J.E6C; J.E6D; J.E6E; J.E6F;
-    J.E70; J.E71; J.E72; J.E73; J.E74; J.E75; J.E76; J.E77;
-    J.E78; J.E79; J.E7A; J.E7B; J.E7C; J.E7D; J.E7E; J.E7F;
-    J.E80; J.E81; J.E82; J.E83; J.E84; J.E85; J.E86; J.E87;
-    J.E88; J.E89; J.E8A; J.E8B; J.E8C; J.E8D; J.E8E; J.E8F;
-    J.E90; J.E91; J.E92; J.E93; J.E94; J.E95; J.E96; J.E97;
-    J.E98; J.E99; J.E9A; J.E9B; J.E9C; J.E9D; J.E9E; J.E9F;
-    J.EA0; J.EA1; J.EA2; J.EA3; J.EA4; J.EA5; J.EA6; J.EA7;
-    J.EA8; J.EA9; J.EAA; J.EAB; J.EAC; J.EAD; J.EAE; J.EAF;
-    J.EB0; J.EB1; J.EB2; J.EB3; J.EB4; J.EB5; J.EB6; J.EB7;
-    J.EB8; J.EB9; J.EBA; J.EBB; J.EBC; J.EBD; J.EBE; J.EBF;
-    J.EC0; J.EC1; J.EC2; J.EC3; J.EC4; J.EC5; J.EC6; J.EC7;
-    J.EC8; J.EC9; J.ECA; J.ECB; J.ECC; J.ECD; J.ECE; J.ECF;
-    J.ED0; J.ED1; J.ED2; J.ED3; J.ED4; J.ED5; J.ED6; J.ED7;
-    J.ED8; J.ED9; J.EDA; J.EDB; J.EDC; J.EDD; J.EDE; J.EDF;
-    J.EE0; J.EE1; J.EE2; J.EE3; J.EE4; J.EE5; J.EE6; J.EE7;
-    J.EE8; J.EE9; J.EEA; J.EEB; J.EEC; J.EED; J.EEE; J.EEF;
-    J.EF0; J.EF1; J.EF2; J.EF3; J.EF4; J.EF5; J.EF6; J.EF7;
-    J.EF8; J.EF9; J.EFA; J.EFB; J.EFC; J.EFD; J.EFE; J.EFF;
+    J.C00; J.C01; J.C02; J.C03; J.C04; J.C05; J.C06; J.C07;
+    J.C08; J.C09; J.C0A; J.C0B; J.C0C; J.C0D; J.C0E; J.C0F;
+    J.C10; J.C11; J.C12; J.C13; J.C14; J.C15; J.C16; J.C17;
+    J.C18; J.C19; J.C1A; J.C1B; J.C1C; J.C1D; J.C1E; J.C1F;
+    J.C20; J.C21; J.C22; J.C23; J.C24; J.C25; J.C26; J.C27;
+    J.C28; J.C29; J.C2A; J.C2B; J.C2C; J.C2D; J.C2E; J.C2F;
+    J.C30; J.C31; J.C32; J.C33; J.C34; J.C35; J.C36; J.C37;
+    J.C38; J.C39; J.C3A; J.C3B; J.C3C; J.C3D; J.C3E; J.C3F;
   ]
 
 let point_values =
@@ -143,8 +119,8 @@ let () =
   let runs = try int_of_string (Sys.getenv "JSONIFIABLE_EXTRACTION_RUNS") with _ -> 10 in
   let iterations = try int_of_string (Sys.getenv "JSONIFIABLE_SUITE_ITERS") with _ -> 20_000 in
   let csv = open_out "extraction_bench.csv" in
-  let generated_enum = J.enum_256_Jsonifiable in
-  let handwritten_enum = J.enum_256_Jsonifiable' in
+  let generated_enum = J.enum_64_Jsonifiable in
+  let handwritten_enum = J.enum_64_Jsonifiable' in
   let generated_point = J.point2D_Jsonifiable nat_jsonifiable in
   let generated_role = J.userRole_Jsonifiable nat_jsonifiable string_jsonifiable in
   let generated_server_config = J.serverConfig_Jsonifiable string_jsonifiable nat_jsonifiable bool_jsonifiable in
@@ -158,8 +134,8 @@ let () =
   Printf.fprintf csv "benchmark,run,seconds\n";
   for run = 1 to runs do
     Printf.printf "Running harness_suite.exe... run %d/%d\n%!" run runs;
-    bench csv run iterations "enum256_generated" (roundtrip generated_enum.J.to_JSON generated_enum.J.from_JSON enum_values);
-    bench csv run iterations "enum256_handwritten" (roundtrip handwritten_enum.J.to_JSON handwritten_enum.J.from_JSON enum_values);
+    bench csv run iterations "enum64_generated" (roundtrip generated_enum.J.to_JSON generated_enum.J.from_JSON enum_values);
+    bench csv run iterations "enum64_handwritten" (roundtrip handwritten_enum.J.to_JSON handwritten_enum.J.from_JSON enum_values);
     bench csv run iterations "point2d_generated" (roundtrip generated_point.J.to_JSON generated_point.J.from_JSON point_values);
     bench csv run iterations "point2d_handwritten" (roundtrip handwritten_point.J.to_JSON handwritten_point.J.from_JSON point_values);
     bench csv run iterations "userrole_generated" (roundtrip generated_role.J.to_JSON generated_role.J.from_JSON role_values);

@@ -1149,19 +1149,26 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt OptionIndt), ElemTy]
   list-ty PairStrJsonTy MapStrJsonTy,
   result-ty OptionTy StrTy OptionResultTy,
   coq.locate "bind" (const BindC),
+  coq.locate "Stdlib.Strings.String.eqb" (const EqbC),
   coq.locate "res" (indc ResC),
   coq.locate "err" (indc ErrC),
   coq.locate "Corelib.Init.Datatypes.Some" (indc SomeC),
   coq.locate "Corelib.Init.Datatypes.None" (indc NoneC),
   coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_no_constructor_name_string" (const ErrNoConsC),
   ErrNoCons = app [global (indc ErrC), _, _, global (const ErrNoConsC)],
+  ExpectedSome = {string_to_coq_string_term "Some"},
+  ExpectedNone = {string_to_coq_string_term "None"},
+  ExpectedValueKey = {string_to_coq_string_term "v"},
   (if (is-self-reference Ind ElemTy)
      (ElemDeser = SelfRef)
      (build-nested-from-json-deser Ind SelfRef ElemTy ElemDeser)),
 
   @pi-decl `s` StrTy S\
     ( NoneRes = app [global (indc ResC), _, _, app [global (indc NoneC), ElemTy]],
-      StringBranchF S = NoneRes ),
+      StringBranchF S =
+        match (app [global (const EqbC), S, ExpectedNone])
+          (fun `_` BoolTy (_\ OptionResultTy))
+          [ NoneRes, ErrNoCons ] ),
 
   @pi-decl `val` JSONTy VAL\
     ( SomeDecodeF VAL =
@@ -1179,7 +1186,10 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt OptionIndt), ElemTy]
               fun `rest` MapStrJsonTy (rest\
                 match rest (fun `_` MapStrJsonTy (_\ OptionResultTy))
                   [ match kv (fun `_` PairStrJsonTy (_\ OptionResultTy))
-                      [ fun `_` StrTy (_\ fun `val` JSONTy (val\ SomeDecodeF val)) ]
+                      [ fun `field` StrTy (field\ fun `val` JSONTy (val\
+                          match (app [global (const EqbC), field, ExpectedValueKey])
+                            (fun `_` BoolTy (_\ OptionResultTy))
+                            [ SomeDecodeF val, ErrNoCons ])) ]
                   , fun `_` PairStrJsonTy (_\ fun `_` MapStrJsonTy (_\ ErrNoCons))
                   ]))
           ] ),
@@ -1187,13 +1197,16 @@ build-nested-from-json-deser Ind SelfRef (app [global (indt OptionIndt), ElemTy]
   @pi-decl `tag` StrTy TAG\
   @pi-decl `inner` JSONTy INNER\
     ( InnerMatchF TAG INNER =
-        match INNER (fun `_` JSONTy (_\ OptionResultTy))
-          [ fun `kvs` MapStrJsonTy (kvs\ KvsMatchF kvs)
-          , fun `_` ListJSONTy (_\ ErrNoCons)
-          , fun `_` StrTy (_\ ErrNoCons)
-          , fun `_` NatTy (_\ ErrNoCons)
-          , fun `_` BoolTy (_\ ErrNoCons)
-          ] ),
+        match (app [global (const EqbC), TAG, ExpectedSome])
+          (fun `_` BoolTy (_\ OptionResultTy))
+          [ match INNER (fun `_` JSONTy (_\ OptionResultTy))
+              [ fun `kvs` MapStrJsonTy (kvs\ KvsMatchF kvs)
+              , fun `_` ListJSONTy (_\ ErrNoCons)
+              , fun `_` StrTy (_\ ErrNoCons)
+              , fun `_` NatTy (_\ ErrNoCons)
+              , fun `_` BoolTy (_\ ErrNoCons)
+              ]
+          , ErrNoCons ] ),
 
   @pi-decl `pp` PairStrJsonTy PP\
     ( PairMatchF PP =
@@ -1291,8 +1304,8 @@ build-nested-from-json-deser _Ind _SelfRef Ty Result :-
 % ============================================================================
 % build-ctor-body-kvs: decode a constructor from kvs : list (string * JSON).
 %
-% Matches the list positionally (ignoring key strings), extracting the JSON
-% value from each pair.  Self-reference args call SelfRef; others call from_JSON.
+% Matches the list positionally and verifies each key is the expected
+% constructor field name.  Self-reference args call SelfRef; others call from_JSON.
 % ============================================================================
 
 func build-ctor-body-kvs inductive, list term, term, term, json-ctor-view, term, term, list term -> term.
@@ -1315,25 +1328,31 @@ build-ctor-body-kvs _Ind Params _Self ResultTy CtorView Kvs0 ErrTerm AccRev Body
     ].
 
 % Arg containing Ind (self-reference or nested): use nested deserializer
-build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
+build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view ArgName ArgTy Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   (Class = arg-self ; Class = arg-nested-supported _), !,
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
+  bool-ty BoolTy,
   coq.locate "bind" (const BindC),
+  coq.locate "Stdlib.Strings.String.eqb" (const EqbC),
   build-nested-from-json-deser Ind Self ArgTy NestedDeser,
   RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
+  ExpectedKey = {string_to_coq_string_term ArgName},
   Body = match Kvs0 (fun `_` KvsTy (_\ ResultTy))
     [ ErrTerm
     , fun `kv` PairTy (kv\
         fun `kvr` KvsTy (kvr\
           match kv (fun `_` PairTy (_\ ResultTy))
-            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
-                app [global (const BindC), _, _, _,
-                     app [NestedDeser, val],
-                     fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]))
+            [ fun `key` StrTy (key\ fun `val` JSONTy (val\
+                match (app [global (const EqbC), key, ExpectedKey])
+                  (fun `_` BoolTy (_\ ResultTy))
+                  [ app [global (const BindC), _, _, _,
+                        app [NestedDeser, val],
+                        fun `dv` ArgTy (dv\
+                          {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]
+                  , ErrTerm ]))
             ]))
     ].
 
@@ -1369,23 +1388,29 @@ build-ctor-body-kvs _Ind _Params _Self _ResultTy (ctor-view _ _ _ _ _ _ [arg-vie
     HeadName.
 
 % Non-self arg: decode with from_JSON
-build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view _ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
+build-ctor-body-kvs Ind Params Self ResultTy (ctor-view K KParNo KName Arity ArgTys ArgNames [arg-view ArgName ArgTy _Class|ArgViews]) Kvs0 ErrTerm AccRev Body :-
   str-ty StrTy,
   json-ty JSONTy,
   pair-ty StrTy JSONTy PairTy,
   list-ty PairTy KvsTy,
+  bool-ty BoolTy,
   coq.locate "bind" (const BindC),
+  coq.locate "Stdlib.Strings.String.eqb" (const EqbC),
   RestCtorView = ctor-view K KParNo KName Arity ArgTys ArgNames ArgViews,
+  ExpectedKey = {string_to_coq_string_term ArgName},
   Body = match Kvs0 (fun `_` KvsTy (_\ ResultTy))
     [ ErrTerm
     , fun `kv` PairTy (kv\
         fun `kvr` KvsTy (kvr\
           match kv (fun `_` PairTy (_\ ResultTy))
-            [ fun `_` StrTy (_\ fun `val` JSONTy (val\
-                app [global (const BindC), _, _, _,
-                     {{ @from_JSON _ _ lp:val }},
-                     fun `dv` ArgTy (dv\
-                       {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]))
+            [ fun `key` StrTy (key\ fun `val` JSONTy (val\
+                match (app [global (const EqbC), key, ExpectedKey])
+                  (fun `_` BoolTy (_\ ResultTy))
+                  [ app [global (const BindC), _, _, _,
+                        {{ @from_JSON _ _ lp:val }},
+                        fun `dv` ArgTy (dv\
+                          {build-ctor-body-kvs Ind Params Self ResultTy RestCtorView kvr ErrTerm [dv|AccRev]})]
+                  , ErrTerm ]))
             ]))
     ].
 
@@ -1422,6 +1447,37 @@ build-obj-index-dispatch Ind Params Self ResultTy [CtorView|CtorViews] Idx Kvs D
     , fun `idx_tail` NatTy (idx_tail\ RestBody idx_tail)
     ].
 
+pred build-string-linear-dispatch i:term, i:list json-ctor-view, i:term, o:term.
+build-string-linear-dispatch _ [] Default Default :- !.
+build-string-linear-dispatch S [CtorView|CtorViews] Default Body :-
+  bool-ty BoolTy,
+  coq.locate "Stdlib.Strings.String.eqb" (const EqbC),
+  coq.locate "res" (indc ResC),
+  KName is {ctor-view-name CtorView},
+  Expected = {string_to_coq_string_term KName},
+  enum-constructor-result (global (indc ResC)) CtorView ResTerm,
+  build-string-linear-dispatch S CtorViews Default RestBody,
+  Body = match (app [global (const EqbC), S, Expected])
+    (fun `_` BoolTy (_\ {{Result _ string}}))
+    [ ResTerm, RestBody ].
+
+pred build-obj-linear-dispatch
+  i:inductive, i:list term, i:term, i:term, i:list json-ctor-view, i:term, i:term, i:term, o:term.
+build-obj-linear-dispatch _ _ _ _ [] _ _ Default Default :- !.
+build-obj-linear-dispatch Ind Params Self ResultTy [CtorView|CtorViews] Tag Kvs Default Body :-
+  bool-ty BoolTy,
+  coq.locate "Stdlib.Strings.String.eqb" (const EqbC),
+  coq.locate "err" (indc ErrC),
+  coq.locate "RocqJSON.JSON_Error_Strings.err_str_json_unrecognized_constructor" (const ErrStrC),
+  ErrTerm = app [global (indc ErrC), _, _, global (const ErrStrC)],
+  build-ctor-body-kvs Ind Params Self ResultTy CtorView Kvs ErrTerm [] ArmBody,
+  build-obj-linear-dispatch Ind Params Self ResultTy CtorViews Tag Kvs Default RestBody,
+  KName is {ctor-view-name CtorView},
+  Expected = {string_to_coq_string_term KName},
+  Body = match (app [global (const EqbC), Tag, Expected])
+    (fun `_` BoolTy (_\ ResultTy))
+    [ ArmBody, RestBody ].
+
 % ============================================================================
 % build-from-json-body: outer JSON match dispatching by schema:
 %   JSON_String s           → enum constructors (0 args)
@@ -1451,14 +1507,13 @@ build-from-json-body Ind Params SelfRef JSONTy ResultTy CtorViews JS Body :-
     EnumViews WithArgsViews,
   % --- String branch: dispatch for 0-arg constructors.
   @pi-decl `s` StrTy S\
-    (EnumPairs = {ctor-name-pairs EnumViews},
-     build-string-trie-dispatch S EnumPairs ErrUnrec (StrDispF S)),
+    build-string-linear-dispatch S EnumViews ErrUnrec (StrDispF S),
 
   % --- Object branch: dispatch for N-arg constructors ---
-  % Inner object kvs dispatch: ObjDispF tag kvs = trie tag -> constructor index.
+  % Inner object kvs dispatch checks the constructor tag and then decodes fields.
   @pi-decl `tag` StrTy TAG\
   @pi-decl `kvs` MapStrJsonTy KVS\
-    build-obj-dispatch Ind Params SelfRef ResultTy WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
+    build-obj-linear-dispatch Ind Params SelfRef ResultTy WithArgsViews TAG KVS ErrUnrec (ObjDispF TAG KVS),
 
   % Match inner JSON_Object value: must be JSON_Object kvs
   @pi-decl `tag2` StrTy TAG2\
@@ -1659,13 +1714,11 @@ build-to-json-record-term Ind Params Projs (fun `a` IndTy (a\ R a)) :-
       (k\ kt\ vs\ vts\ to-json-branch-record CtorView Projs k kt vs vts)
       (R A).
 
-% Build from_json for a record type using positional (not name-based) kvs decoding.
+% Build from_json for a record type using positional kvs decoding with exact
+% expected field-name checks.
 %
 % Records serialize as flat JSON_Object with field-name keys. The from_json
-% matches JSON_Object and decodes kvs positionally — ignoring the key strings —
-% exactly like build-ctor-body-kvs does for regular constructors.
-%
-% This avoids string comparisons in the proof, keeping the same proof tactic.
+% matches JSON_Object and decodes kvs positionally, rejecting mismatched keys.
 pred build-from-json-record-term
   i:inductive, i:list term, i:list constant, o:term.
 build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
@@ -1685,7 +1738,7 @@ build-from-json-record-term Ind Params _Projs (fun `js` JSONTy (js\ R js)) :-
   @pi-decl `js` JSONTy JS\
   R JS = match JS (fun `_` JSONTy (_\ ResultTy))
     [ fun `kvs` MapStrJsonTy (kvs\
-        % Positional decode: match kvs elements by position (keys are ignored).
+        % Positional decode: match kvs elements by position and check field keys.
         % SelfRef is dummy for non-recursive records; recursive fields are
         % classified in the constructor view and handled by build-ctor-body-kvs.
         {build-ctor-body-kvs Ind Params (global (indt Ind)) ResultTy CtorView kvs ErrUnrec []})
@@ -1718,7 +1771,6 @@ pred build-fun-wrapped-skeletons
 build-fun-wrapped-skeletons Ind 0 _ RevTPs _RevTCPs TJSkel FJSkel :-
   std.rev RevTPs Params,
   declaration-view Ind Params (record-view _ _ Projs _), !,
-  % coq.say "derive.jsonifiable: record detected, using field-name JSON format",
   record-field-jsonifiable-types Ind Params FieldTys,
   std.assert! (build-record-fun-wrapped Ind Params Projs FieldTys TJSkel FJSkel)
     "build-record-fun-wrapped failed".
@@ -1813,6 +1865,68 @@ build-record-proof-type-inner Ind TJC FJC TPs TCPs [Ti|Tis] RevFInsts ProofTySke
     build-record-proof-type-inner Ind TJC FJC TPs TCPs Tis [JI|RevFInsts] (InnerTy JI),
   ProofTySkel = prod `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerTy ji).
 
+% build-prod-wrapped-reverse-proof-type: builds the reverse-roundtrip proof TYPE
+% (all universal quantifiers, including over params), given already-registered TJC/FJC.
+pred build-prod-wrapped-reverse-proof-type
+  i:inductive, i:constant, i:constant, i:int, i:term, i:list term, i:list (pair term term), o:term.
+
+build-prod-wrapped-reverse-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :-
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  declaration-view Ind TPs (record-view _ _ _ _), !,
+  record-field-jsonifiable-types Ind TPs FieldTys,
+  build-record-reverse-proof-type-inner Ind TJC FJC TPs TCPs FieldTys [] ProofTySkel.
+
+build-prod-wrapped-reverse-proof-type Ind TJC FJC 0 _ RevTPs RevTCPs ProofTySkel :- !,
+  std.rev RevTPs TPs,
+  std.rev RevTCPs TCPs,
+  inductive-concrete-jsonifiable-types Ind TPs ConcreteTys,
+  build-record-reverse-proof-type-inner Ind TJC FJC TPs TCPs ConcreteTys [] ProofTySkel.
+
+build-prod-wrapped-reverse-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
+  N > 0, N1 is N - 1,
+  jsonifiable-param-sort PTy, !,
+  @pi-decl PName PTy A\
+  @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
+    build-prod-wrapped-reverse-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
+      (InnerTy A JA),
+  ProofTySkel = prod PName PTy (a\ prod `JS` {{ Jsonifiable lp:a }} (ja\ InnerTy a ja)).
+
+build-prod-wrapped-reverse-proof-type Ind TJC FJC N (prod PName PTy RestArity) RevTPs RevTCPs ProofTySkel :-
+  N > 0, N1 is N - 1,
+  @pi-decl PName PTy A\
+    build-prod-wrapped-reverse-proof-type Ind TJC FJC N1 (RestArity A) [A|RevTPs] RevTCPs
+      (InnerTy A),
+  ProofTySkel = prod PName PTy (a\ InnerTy a).
+
+pred build-record-reverse-proof-type-inner
+  i:inductive, i:constant, i:constant, i:list term, i:list (pair term term), i:list term, i:list term, o:term.
+
+build-record-reverse-proof-type-inner Ind TJC FJC TPs TCPs [] RevFInsts ProofTySkel :-
+  std.rev RevFInsts FInsts,
+  coq.mk-app (global (indt Ind)) TPs IndTy,
+  json-ty JSONTy,
+  str-ty StrTy,
+  result-ty IndTy StrTy ResultTy,
+  coq.locate "res" (indc ResC),
+  coq.locate "RocqJSON.JSON_Type.JSON_equiv" (indt EquivGR),
+  TypeParams = {param-app-args TPs TCPs},
+  std.append TypeParams FInsts AllParams,
+  TJApp = app [global (const TJC) | AllParams],
+  FJApp = app [global (const FJC) | AllParams],
+  ProofTySkel = prod `js` JSONTy (js\
+    prod `v` IndTy (v\
+      prod `H` (app [ {{@eq}}, ResultTy
+                    , app [FJApp, js]
+                    , app [global (indc ResC), _, _, v]
+                    ])
+        (_\ app [global (indt EquivGR), app [TJApp, v], js]))).
+
+build-record-reverse-proof-type-inner Ind TJC FJC TPs TCPs [Ti|Tis] RevFInsts ProofTySkel :-
+  @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
+    build-record-reverse-proof-type-inner Ind TJC FJC TPs TCPs Tis [JI|RevFInsts] (InnerTy JI),
+  ProofTySkel = prod `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerTy ji).
+
 func enum-proof-rty term, term, term, term, term, list term, list term -> term.
 enum-proof-rty TJApp FJApp ResultTy ResG _ Vars _ R :-
   std.last Vars V,
@@ -1843,61 +1957,64 @@ pure-enum-proof-term Ind TJC FJC (fun `v` IndTy (v\ Body v)) :-
 % build-fun-wrapped-instance: builds the Build_Jsonifiable application wrapped
 % in `fun (A : Type) (JA : Jsonifiable A) => ...` for each type param.
 pred build-fun-wrapped-instance
-  i:inductive, i:constant, i:constant, i:constant,
+  i:inductive, i:constant, i:constant, i:constant, i:constant,
   i:int, i:term, i:list term, i:list (pair term term), o:term.
 
 % Record base case: also wrap with {Ji : Jsonifiable Ti} for each concrete field type.
-build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :-
+build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC 0 _ RevTPs RevTCPs InstSkel :-
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
   declaration-view Ind TPs (record-view _ _ _ _), !,
   record-field-jsonifiable-types Ind TPs FieldTys,
-  build-record-instance-inner Ind TJC FJC PrfC TPs TCPs FieldTys [] InstSkel.
+  build-record-instance-inner Ind TJC FJC PrfC RevPrfC TPs TCPs FieldTys [] InstSkel.
 
 % Standard base case: non-record inductives, wrapped with abstract Jsonifiable
 % instances for each distinct concrete arg type (mirrors record approach).
-build-fun-wrapped-instance Ind TJC FJC PrfC 0 _ RevTPs RevTCPs InstSkel :- !,
+build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC 0 _ RevTPs RevTCPs InstSkel :- !,
   std.rev RevTPs TPs,
   std.rev RevTCPs TCPs,
   inductive-concrete-jsonifiable-types Ind TPs ConcreteTys,
-  build-record-instance-inner Ind TJC FJC PrfC TPs TCPs ConcreteTys [] InstSkel.
+  build-record-instance-inner Ind TJC FJC PrfC RevPrfC TPs TCPs ConcreteTys [] InstSkel.
 
-build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
+build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
   N > 0, N1 is N - 1,
   jsonifiable-param-sort PTy, !,
   @pi-decl PName PTy A\
   @pi-decl `JS` {{ Jsonifiable lp:A }} JA\
-    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
+    build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC N1 (RestArity A) [A|RevTPs] [pr A JA|RevTCPs]
       (InnerInst A JA),
   InstSkel = fun PName PTy (a\ fun `JS` {{ Jsonifiable lp:a }} (ja\ InnerInst a ja)).
 
-build-fun-wrapped-instance Ind TJC FJC PrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
+build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC N (prod PName PTy RestArity) RevTPs RevTCPs InstSkel :-
   N > 0, N1 is N - 1,
   @pi-decl PName PTy A\
-    build-fun-wrapped-instance Ind TJC FJC PrfC N1 (RestArity A) [A|RevTPs] RevTCPs
+    build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC N1 (RestArity A) [A|RevTPs] RevTCPs
       (InnerInst A),
   InstSkel = fun PName PTy (a\ InnerInst a).
 
 % Build instance inner for records: wraps with {Ji : Jsonifiable Ti} for concrete field types.
 pred build-record-instance-inner
-  i:inductive, i:constant, i:constant, i:constant,
+  i:inductive, i:constant, i:constant, i:constant, i:constant,
   i:list term, i:list (pair term term), i:list term, i:list term, o:term.
 
-build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [] RevFInsts InstSkel :-
+build-record-instance-inner Ind TJC FJC PrfC RevPrfC TPs TCPs [] RevFInsts InstSkel :-
   std.rev RevFInsts FInsts,
   coq.mk-app (global (indt Ind)) TPs IndTy,
   TypeParams = {param-app-args TPs TCPs},
   std.append TypeParams FInsts AllParams,
   coq.locate "RocqJSON.JSON.Build_Jsonifiable" (indc BuildGR),
+  TJApp = app [global (const TJC)  | AllParams],
+  FJApp = app [global (const FJC)  | AllParams],
   InstSkel = app [ global (indc BuildGR), IndTy
-                 , app [global (const TJC)  | AllParams]
-                 , app [global (const FJC)  | AllParams]
+                 , TJApp
+                 , FJApp
                  , app [global (const PrfC) | AllParams]
+                 , app [global (const RevPrfC) | AllParams]
                  ].
 
-build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [Ti|Tis] RevFInsts InstSkel :-
+build-record-instance-inner Ind TJC FJC PrfC RevPrfC TPs TCPs [Ti|Tis] RevFInsts InstSkel :-
   @pi-decl `JS` {{ Jsonifiable lp:Ti }} JI\
-    build-record-instance-inner Ind TJC FJC PrfC TPs TCPs Tis [JI|RevFInsts] (InnerInst JI),
+    build-record-instance-inner Ind TJC FJC PrfC RevPrfC TPs TCPs Tis [JI|RevFInsts] (InnerInst JI),
   InstSkel = fun `JS` {{ Jsonifiable lp:Ti }} (ji\ InnerInst ji).
 
 % ============================================================================
@@ -1907,7 +2024,6 @@ build-record-instance-inner Ind TJC FJC PrfC TPs TCPs [Ti|Tis] RevFInsts InstSke
 func main gref, string -> list prop.
 main (indt Ind) Prefix C :- std.do! [
   coq.env.indt Ind _IsInd ParNo _UParNo Arity _Kns _KTs,
-  % coq.say "derive.jsonifiable: deriving for" Ind "with" ParNo "params",
   reject-unsupported-target-arity ParNo Arity,
 
   % --- Phase 1 & 2: Build to_json and from_json ---
@@ -1917,17 +2033,14 @@ main (indt Ind) Prefix C :- std.do! [
     "derive.jsonifiable: to_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "to_json") TJName,
   coq.env.add-const TJName ToJson ToJsonTy @transparent! TJC,
-  % coq.say "derive.jsonifiable: registered" TJName,
 
   std.assert-ok! (coq.elaborate-skeleton FromJsonSkel FromJsonTy FromJson)
     "derive.jsonifiable: from_json elaboration failed",
   coq.ensure-fresh-global-id (Prefix ^ "from_json") FJName,
   coq.env.add-const FJName FromJson FromJsonTy @transparent! FJC,
-  % coq.say "derive.jsonifiable: registered" FJName,
 
   % --- Phase 3: Prove canonical_jsonification via Ltac1 ---
   build-prod-wrapped-proof-type Ind TJC FJC ParNo Arity [] [] ProofTy,
-  % coq.say "derive.jsonifiable: proof type =" ProofTy,
   (if (ParNo = 0, pure-enum-proof-term Ind TJC FJC ProofSkel)
     (std.do! [
       std.assert-ok! (coq.elaborate-skeleton ProofSkel _ProofSkelTy Bo)
@@ -1940,7 +2053,6 @@ main (indt Ind) Prefix C :- std.do! [
       % Bo is a fresh uninstantiated Elpi var; typecheck creates a Coq evar for it
       std.assert-ok! (coq.typecheck {{ lp:Bo : lp:ProofTy }} _)
         "derive.jsonifiable: canonical proof typecheck failed",
-      % coq.say "derive.jsonifiable: proof typecheck OK, collecting goals",
       coq.ltac.collect-goals Bo Goals _SGoals,
       Goals = [G|_],
       (if (coq.env.recursive? Ind)
@@ -1955,22 +2067,42 @@ main (indt Ind) Prefix C :- std.do! [
     coq.ensure-fresh-global-id (Prefix ^ "canonical_jsonification") PrfName,
     coq.env.add-const PrfName Bo ProofTy @opaque! PrfC,
 
-    % --- Phase 4: Build Jsonifiable instance ---
-    build-fun-wrapped-instance Ind TJC FJC PrfC ParNo Arity [] [] InstSkel,
+    % --- Phase 4: Prove reverse_canonical_jsonification via Ltac1 ---
+    build-prod-wrapped-reverse-proof-type Ind TJC FJC ParNo Arity [] [] RevProofTy,
+    std.assert-ok! (coq.typecheck {{ lp:RevBo : lp:RevProofTy }} _)
+      "derive.jsonifiable: reverse canonical proof typecheck failed",
+    coq.ltac.collect-goals RevBo RevGoals _RevSGoals,
+    RevGoals = [RevG|_],
+    (if (ParNo = 0,
+         declaration-view Ind [] (inductive-view _ _ RevCtorViews),
+         all-nullary-ctors RevCtorViews)
+      (RevTacName = "derive_jsonifiable_reverse_proof_pure_enum")
+      (if (coq.env.recursive? Ind)
+        (RevTacName = "derive_jsonifiable_reverse_proof_safe")
+        (RevTacName = "derive_jsonifiable_reverse_proof_norec"))),
+    coq.ltac.open (g\gl\
+      coq.ltac.call RevTacName [] g gl ok
+    ) RevG RevRemainingGoals,
+    (if (RevRemainingGoals = [])
+      true
+      (coq.error "derive.jsonifiable: reverse_canonical_jsonification proof could not be closed automatically" RevRemainingGoals)),
+    coq.ensure-fresh-global-id (Prefix ^ "reverse_canonical_jsonification") RevPrfName,
+    coq.env.add-const RevPrfName RevBo RevProofTy @opaque! RevPrfC,
+
+    % --- Phase 5: Build Jsonifiable instance ---
+    build-fun-wrapped-instance Ind TJC FJC PrfC RevPrfC ParNo Arity [] [] InstSkel,
     std.assert-ok! (coq.elaborate-skeleton InstSkel InstanceTy InstanceElab)
       "derive.jsonifiable: instance elaboration failed",
     coq.ensure-fresh-global-id (Prefix ^ "Jsonifiable") InstName,
     coq.env.add-const InstName InstanceElab InstanceTy @transparent! InstC,
     coq.TC.declare-instance (const InstC) 0,
-    coq.say "derive.jsonifiable: declared TC instance" InstName,
     coq.elpi.accumulate _ "derive.jsonifiable.db"
       (clause _ _ (jsonifiable-done (indt Ind))),
     C = [jsonifiable-done (indt Ind)]
     ]) 
-     (coq.warning "derive.jsonifiable" "derive.jsonifiable.incomplete-proof"
-       "derive.jsonifiable: canonical_jsonification proof could not be closed automatically; Jsonifiable instance will NOT be registered. Proof state may give clues.",
-      coq.say "derive.jsonifiable: PROOF INCOMPLETE, remaining goals:" RemainingGoals,
-      C = [])
+	     (coq.warning "derive.jsonifiable" "derive.jsonifiable.incomplete-proof"
+	       "derive.jsonifiable: canonical_jsonification proof could not be closed automatically; Jsonifiable instance will NOT be registered. Proof state may give clues.",
+	      C = [])
   )
   % Only register the Jsonifiable instance if the proof is complete.
 ].

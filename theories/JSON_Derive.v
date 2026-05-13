@@ -52,6 +52,100 @@ Proof.
     reflexivity.
 Defined.
 
+Lemma result_map_reverse_JSON_equiv_custom {A}
+    (from : JSON -> Result A string) (to : A -> JSON) :
+    (forall js x, from js = res x -> JSON_equiv (to x) js) ->
+    forall js xs,
+      result_map from js = res xs ->
+      Forall2 JSON_equiv (map to xs) js.
+Proof.
+  intros Helt js.
+  induction js as [|j js IH]; intros xs Hmap; cbn in Hmap.
+  - inversion Hmap; subst; constructor.
+  - destruct (from j) eqn:Hj; cbn in Hmap; try discriminate.
+    destruct (result_map from js) eqn:Hjs; cbn in Hmap; try discriminate.
+    inversion Hmap; subst; clear Hmap.
+    cbn.
+    constructor.
+    + eapply Helt; eauto.
+    + eapply IH; eauto.
+Qed.
+
+Lemma result_map_reverse_JSON_equiv_custom_in {A}
+    (from : JSON -> Result A string) (to : A -> JSON) :
+    forall js xs,
+      result_map from js = res xs ->
+      (forall js0 x, In js0 js -> from js0 = res x -> JSON_equiv (to x) js0) ->
+      Forall2 JSON_equiv (map to xs) js.
+Proof.
+  induction js as [|j js IH]; intros xs Hmap Helt; cbn in Hmap.
+  - inversion Hmap; subst; constructor.
+  - destruct (from j) eqn:Hj; cbn in Hmap; try discriminate.
+    destruct (result_map from js) eqn:Hjs; cbn in Hmap; try discriminate.
+    inversion Hmap; subst; clear Hmap.
+    cbn.
+    constructor.
+    + eapply Helt; eauto. left; reflexivity.
+    + eapply IH; eauto.
+      intros js0 x Hin Hfrom.
+      eapply Helt; eauto. right; assumption.
+Qed.
+
+Lemma result_map_reverse_JSON_equiv_pair_array_custom {A B}
+    (fromA : JSON -> Result A string) (toA : A -> JSON)
+    (fromB : JSON -> Result B string) (toB : B -> JSON)
+    (err_msg : string) :
+    forall js xs,
+      result_map
+        (fun js0 =>
+          match js0 with
+          | JSON_Array [ajs; bjs] =>
+              av <- fromA ajs ;;
+              bv <- fromB bjs ;;
+              res (av, bv)
+          | _ => err err_msg
+          end) js = res xs ->
+      (forall ajs a, fromA ajs = res a -> JSON_equiv (toA a) ajs) ->
+      (forall ajs bjs b,
+        In (JSON_Array [ajs; bjs]) js ->
+        fromB bjs = res b ->
+        JSON_equiv (toB b) bjs) ->
+      Forall2 JSON_equiv
+        (map (fun p => JSON_Array [toA (fst p); toB (snd p)]) xs) js.
+Proof.
+  induction js as [|j js IH]; intros xs Hmap HA HB; cbn in Hmap.
+  - inversion Hmap; subst; constructor.
+  - destruct j as [|arr| | |]; cbn in Hmap; try discriminate.
+    destruct arr as [|ajs arr]; cbn in Hmap; try discriminate.
+    destruct arr as [|bjs arr]; cbn in Hmap; try discriminate.
+    destruct arr as [|extra arr]; cbn in Hmap; try discriminate.
+    destruct (fromA ajs) eqn:Ha; cbn in Hmap; try discriminate.
+    destruct (fromB bjs) eqn:Hb; cbn in Hmap; try discriminate.
+    destruct (result_map
+      (fun js0 =>
+        match js0 with
+        | JSON_Array [ajs0; bjs0] =>
+            av <- fromA ajs0;;
+            bv <- fromB bjs0;;
+            res (av, bv)
+        | _ => err err_msg
+        end) js) eqn:Hr; cbn in Hmap; try discriminate.
+    inversion Hmap; subst; clear Hmap.
+    cbn.
+    constructor.
+    + apply JSON_equiv_Array.
+      constructor.
+      * eapply HA; eauto.
+      * constructor.
+        -- eapply HB; eauto. left; reflexivity.
+        -- constructor.
+    + eapply IH; eauto.
+      intros ajs0 bjs0 bval Hin Hfrom.
+      eapply HB.
+      * right; exact Hin.
+      * exact Hfrom.
+Qed.
+
 Ltac derive_jsonifiable_proof :=
   intros;
   match goal with
@@ -73,6 +167,387 @@ Ltac derive_jsonifiable_proof :=
     | |- _ => repeat (erewrite &IH_rec)
     end
   ).
+
+Ltac json_reverse_cleanup_eq H :=
+  lazymatch type of H with
+  | ?lhs = _ =>
+      lazymatch lhs with
+      | context [if String.eqb ?x ?y then _ else _] =>
+          destruct (String.eqb x y) eqn:?; cbn in H; try discriminate;
+          try match goal with
+          | Heq : String.eqb x y = true |- _ =>
+              apply String.eqb_eq in Heq; subst
+          end
+      | context [string_dec ?x ?y] =>
+          destruct (string_dec x y); subst; cbn in H; try discriminate
+      | context [bind ?r ?f] =>
+          destruct r eqn:?; cbn in H; try discriminate
+      | context [match ?r with res _ => _ | err _ => _ end] =>
+          destruct r eqn:?; cbn in H; try discriminate
+      | context [match ?j with
+                 | JSON_Object _ => _
+                 | JSON_Array _ => _
+                 | JSON_String _ => _
+                 | JSON_Nat _ => _
+                 | JSON_Boolean _ => _
+                 end] =>
+          destruct j; cbn in H; try discriminate
+      | context [match ?o with Some _ => _ | None => _ end] =>
+          destruct o eqn:?; cbn in H; try discriminate
+      | context [match ?l with nil => _ | cons _ _ => _ end] =>
+          destruct l; cbn in H; try discriminate
+      | context [match ?n with O => _ | S _ => _ end] =>
+          destruct n; cbn in H; try discriminate
+      | context [match ?s with EmptyString => _ | String _ _ => _ end] =>
+          destruct s; cbn in H; try discriminate
+      | context [match ?a with Ascii _ _ _ _ _ _ _ _ => _ end] =>
+          destruct a; cbn in H; try discriminate
+      | context [match ?b with true => _ | false => _ end] =>
+          destruct b; cbn in H; try discriminate
+      end
+  end.
+
+Ltac json_reverse_cleanup :=
+  repeat match goal with
+  | H : err _ = res _ |- _ => discriminate H
+  | H : res _ = res _ |- _ => inversion H; subst; clear H
+  | H : None = Some _ |- _ => discriminate H
+  | H : Some _ = Some _ |- _ => inversion H; subst; clear H
+  | H : _ = res _ |- _ => json_reverse_cleanup_eq H
+  | H : _ = err _ |- _ => json_reverse_cleanup_eq H
+  | H : _ = Some _ |- _ => json_reverse_cleanup_eq H
+  | o : option _ |- _ => destruct o; cbn in *
+  | p : prod _ _ |- _ => destruct p; cbn in *
+  end.
+
+Ltac solve_json_decode :=
+  cbn;
+  repeat match goal with
+  | H : ?lhs = res ?x |- context [?lhs] => rewrite H
+  | H : ?lhs = err ?e |- context [?lhs] => rewrite H
+  end;
+  reflexivity.
+
+Ltac solve_json_depth :=
+  cbn in *;
+  repeat match goal with
+  | |- context [match ?n with O => _ | S _ => _ end] =>
+      destruct n eqn:?; cbn in *
+  | H : context [match ?n with O => _ | S _ => _ end] |- _ =>
+      destruct n eqn:?; cbn in *
+  end;
+  pose proof Nat.le_max_l;
+  pose proof Nat.le_max_r;
+  lia.
+
+Ltac solve_json_equiv_by_induction :=
+  match goal with
+  | IH : forall v : JSON, _ -> forall x, ?from v = res x -> JSON_equiv (?to x) v
+    |- JSON_equiv ?lhs ?js =>
+      solve [
+        let x := fresh "x" in
+        let Hfrom := fresh "Hfrom" in
+        let Hlhs := fresh "Hlhs" in
+        assert (exists x, from js = res x /\ lhs = to x) as [x [Hfrom Hlhs]]
+          by (solve [eexists; split; [solve_json_decode | reflexivity]]);
+        rewrite Hlhs;
+        refine (IH js _ x Hfrom);
+        solve [cbn; eauto]
+      ]
+  end.
+
+Ltac solve_json_equiv :=
+  match goal with
+  | |- JSON_equiv (JSON_String _) (JSON_String _) => constructor
+  | |- JSON_equiv (JSON_Nat _) (JSON_Nat _) => constructor
+  | |- JSON_equiv (JSON_Boolean _) (JSON_Boolean _) => constructor
+  | H : from_JSON ?js = res ?x |- JSON_equiv (to_JSON ?x) ?js =>
+      eapply reverse_canonical_jsonification; eauto
+  | IH : forall js' : JSON, JSON_depth js' < ?bound ->
+      forall x, ?from js' = res x -> JSON_equiv (?to x) js',
+    H : ?from ?js = res ?x |- JSON_equiv (?to ?x) ?js =>
+      solve [eapply IH; [solve_json_depth | eassumption]]
+  | H : ?from ?js = res ?x |- JSON_equiv (?to ?x) ?js =>
+      progress (cbn in H; json_reverse_cleanup; cbn; json_reverse_cleanup);
+      solve_json_equiv
+  | |- JSON_equiv
+        (JSON_Object
+          [(?ctor, JSON_Object
+            [(?k1, JSON_Array (map ?to1 ?xs1));
+             (?k2, JSON_Array (map ?to2 ?xs2))])])
+        (JSON_Object
+          [(?ctor, JSON_Object
+            [(?k1, JSON_Array ?js1);
+             (?k2, JSON_Array ?js2)])]) =>
+      match goal with
+      | H1 : result_map ?from1 ?js1_h = res ?xs1_h |- _ =>
+      constr_eq js1_h js1;
+      constr_eq xs1_h xs1;
+      match goal with
+      | H2 : result_map ?from2 ?js2_h = res ?xs2_h |- _ =>
+      constr_eq js2_h js2;
+      constr_eq xs2_h xs2;
+      apply JSON_equiv_Object_assoc;
+      constructor;
+      [cbn; split;
+       [reflexivity
+       | apply JSON_equiv_Object_assoc;
+         constructor;
+         [cbn; split;
+          [reflexivity
+          | apply JSON_equiv_Array;
+            eapply result_map_reverse_JSON_equiv_pair_array_custom;
+            [exact H1
+            | intros; eapply reverse_canonical_jsonification; eauto
+            | let ja := fresh "ja" in
+              let jb := fresh "jb" in
+              let x := fresh "x" in
+              let Hin := fresh "Hin" in
+              let Hfrom := fresh "Hfrom" in
+              intros ja jb x Hin Hfrom;
+              match type of Hin with
+              | In (JSON_Array [ja; jb]) ?container =>
+                  pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+              end;
+              pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+              match goal with
+              | IH : forall js' : JSON, JSON_depth js' < ?bound ->
+                  forall x, ?from js' = res x -> JSON_equiv (?to x) js'
+                |- JSON_equiv (?to ?x) jb =>
+                  eapply IH; [solve_json_depth | exact Hfrom]
+              | _ => solve_json_equiv
+              end]]
+         | constructor;
+           [cbn; split;
+            [reflexivity
+            | apply JSON_equiv_Array;
+              eapply result_map_reverse_JSON_equiv_pair_array_custom;
+              [exact H2
+              | intros; eapply reverse_canonical_jsonification; eauto
+              | let ja := fresh "ja" in
+                let jb := fresh "jb" in
+                let x := fresh "x" in
+                let Hin := fresh "Hin" in
+                let Hfrom := fresh "Hfrom" in
+                intros ja jb x Hin Hfrom;
+                match type of Hin with
+                | In (JSON_Array [ja; jb]) ?container =>
+                    pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+                end;
+                pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+                match goal with
+                | IH : forall js' : JSON, JSON_depth js' < ?bound ->
+                    forall x, ?from js' = res x -> JSON_equiv (?to x) js'
+                  |- JSON_equiv (?to ?x) jb =>
+                    eapply IH; [solve_json_depth | exact Hfrom]
+                | _ => solve_json_equiv
+                end]]
+           | constructor]]]
+      | constructor]
+      end
+      end
+  | |- JSON_equiv (JSON_Array (map ?to ?xs)) (JSON_Array ?js) =>
+      match goal with
+      | Hmap : result_map ?from ?js_h = res ?xs_h |- _ =>
+      constr_eq js_h js;
+      constr_eq xs_h xs;
+      apply JSON_equiv_Array;
+      first
+      [ eapply (@result_map_reverse_JSON_equiv_custom_in _ from to);
+        [exact Hmap
+        | let js0 := fresh "js0" in
+          let x := fresh "x" in
+          let Hin := fresh "Hin" in
+          let Helt := fresh "Helt" in
+          intros js0 x Hin Helt;
+          pose proof (depth_item_leq_array_max js JSON_depth js0 Hin);
+          cbn in Helt; json_reverse_cleanup; cbn; json_reverse_cleanup; cbn;
+          solve_json_equiv]
+      | eapply result_map_reverse_JSON_equiv_pair_array_custom;
+        [exact Hmap
+        | intros; eapply reverse_canonical_jsonification; eauto
+        | let ja := fresh "ja" in
+          let jb := fresh "jb" in
+          let x := fresh "x" in
+          let Hin := fresh "Hin" in
+          let Hfrom := fresh "Hfrom" in
+          intros ja jb x Hin Hfrom;
+          match type of Hin with
+          | In (JSON_Array [ja; jb]) ?container =>
+              pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+          end;
+          pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+          match goal with
+          | IH : forall js' : JSON, JSON_depth js' < ?bound ->
+              forall x, ?from js' = res x -> JSON_equiv (?to x) js'
+            |- JSON_equiv (?to ?x) jb =>
+              eapply IH; [solve_json_depth | exact Hfrom]
+          | _ => solve_json_equiv
+          end]
+      | eapply (@result_map_reverse_JSON_equiv_custom_in _ from to);
+        [exact Hmap
+        | intros js0 ? Hin Helt;
+          destruct js0 as [|arr| | |]; cbn in Helt; try discriminate;
+          destruct arr as [|ja arr]; cbn in Helt; try discriminate;
+          destruct arr as [|jb arr]; cbn in Helt; try discriminate;
+          destruct arr as [|jextra arr]; cbn in Helt; try discriminate;
+          json_reverse_cleanup; cbn; json_reverse_cleanup; cbn;
+          match type of Hin with
+          | In (JSON_Array [ja; jb]) ?container =>
+              pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+          end;
+          pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+          apply JSON_equiv_Array;
+          constructor;
+          [eapply reverse_canonical_jsonification; eauto
+          | constructor; [solve_json_equiv | constructor]]]]
+      end
+  | |- JSON_equiv (JSON_Array _) (JSON_Array _) =>
+      apply JSON_equiv_Array; solve_json_forall2
+  | |- JSON_equiv (JSON_Object _) (JSON_Object _) =>
+      apply JSON_equiv_Object_assoc; solve_json_forall2
+  | |- JSON_equiv ?js ?js =>
+      apply JSON_equiv_refl
+  end
+with solve_json_forall2 :=
+  match goal with
+  | |- Forall2 JSON_equiv (map ?to ?xs) ?js =>
+      match goal with
+      | Hmap : result_map ?from ?js_h = res ?xs_h |- _ =>
+      constr_eq js_h js;
+      constr_eq xs_h xs;
+      first
+      [ eapply (@result_map_reverse_JSON_equiv_custom_in _ from to);
+        [exact Hmap
+        | let js0 := fresh "js0" in
+          let x := fresh "x" in
+          let Hin := fresh "Hin" in
+          let Helt := fresh "Helt" in
+          intros js0 x Hin Helt;
+          pose proof (depth_item_leq_array_max js JSON_depth js0 Hin);
+          cbn in Helt; json_reverse_cleanup; cbn; json_reverse_cleanup; cbn;
+          solve_json_equiv]
+      | eapply result_map_reverse_JSON_equiv_pair_array_custom;
+        [exact Hmap
+        | intros; eapply reverse_canonical_jsonification; eauto
+        | let ja := fresh "ja" in
+          let jb := fresh "jb" in
+          let x := fresh "x" in
+          let Hin := fresh "Hin" in
+          let Hfrom := fresh "Hfrom" in
+          intros ja jb x Hin Hfrom;
+          match type of Hin with
+          | In (JSON_Array [ja; jb]) ?container =>
+              pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+          end;
+          pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+          match goal with
+          | IH : forall js' : JSON, JSON_depth js' < ?bound ->
+              forall x, ?from js' = res x -> JSON_equiv (?to x) js'
+            |- JSON_equiv (?to ?x) jb =>
+              eapply IH; [solve_json_depth | exact Hfrom]
+          | _ => solve_json_equiv
+          end]
+      | eapply (@result_map_reverse_JSON_equiv_custom_in _ from to);
+        [exact Hmap
+        | intros js0 ? Hin Helt;
+          destruct js0 as [|arr| | |]; cbn in Helt; try discriminate;
+          destruct arr as [|ja arr]; cbn in Helt; try discriminate;
+          destruct arr as [|jb arr]; cbn in Helt; try discriminate;
+          destruct arr as [|jextra arr]; cbn in Helt; try discriminate;
+          json_reverse_cleanup; cbn; json_reverse_cleanup; cbn;
+          match type of Hin with
+          | In (JSON_Array [ja; jb]) ?container =>
+              pose proof (depth_item_leq_array_max container JSON_depth (JSON_Array [ja; jb]) Hin)
+          end;
+          pose proof (depth_item_leq_array_max [ja; jb] JSON_depth jb ltac:(simpl; auto));
+          apply JSON_equiv_Array;
+          constructor;
+          [eapply reverse_canonical_jsonification; eauto
+          | constructor; [solve_json_equiv | constructor]]]]
+      end
+  | |- Forall2 JSON_equiv [] [] => constructor
+  | |- Forall2 JSON_equiv (_ :: _) (_ :: _) =>
+      constructor; [solve_json_equiv | solve_json_forall2]
+  | |- Forall2 (fun p1 p2 => fst p1 = fst p2 /\ JSON_equiv (snd p1) (snd p2)) [] [] =>
+      constructor
+  | |- Forall2 (fun p1 p2 => fst p1 = fst p2 /\ JSON_equiv (snd p1) (snd p2)) (_ :: _) (_ :: _) =>
+      constructor;
+      [cbn; split; [reflexivity | solve_json_equiv]
+      | solve_json_forall2]
+  end
+with solve_json_result_map :=
+  match goal with
+  | H : result_map ?from ?js = res ?xs |- Forall2 JSON_equiv (map ?to ?xs) ?js =>
+      generalize dependent xs;
+      induction js as [|j js IH]; intros xs Hmap; cbn in Hmap;
+      [inversion Hmap; subst; clear Hmap; constructor
+      | destruct (from j) eqn:?; cbn in Hmap; try discriminate;
+        destruct (result_map from js) eqn:?; cbn in Hmap; try discriminate;
+        inversion Hmap; subst; clear Hmap; cbn;
+        constructor;
+        [cbn; json_reverse_cleanup; cbn; json_reverse_cleanup; solve_json_equiv
+        | match goal with
+          | Hstrong : forall js' : JSON, JSON_depth js' < ?bound ->
+              forall v, ?from_rec js' = res v -> JSON_equiv (?to_rec v) js' |- _ =>
+              eapply IH;
+              [intros js' Hlt v Hdec;
+               eapply Hstrong; [cbn in *; lia | exact Hdec]
+              | eauto]
+          end]]
+  end.
+
+Ltac derive_jsonifiable_reverse_proof :=
+  repeat match goal with
+  | |- forall _ : JSON, _ => fail 1
+  | |- forall _ : _, _ => intro
+  end;
+  intros js;
+  induction js using JSON_ind_better;
+  intros x H;
+  cbn in H;
+  json_reverse_cleanup;
+  cbn;
+  json_reverse_cleanup;
+  solve_json_equiv.
+
+Ltac derive_jsonifiable_reverse_proof_safe :=
+  repeat match goal with
+  | |- forall _ : JSON, _ => fail 1
+  | |- forall _ : _, _ => intro
+  end;
+  try intros js;
+  try match goal with
+  | js : JSON |- _ => induction js using JSON_ind_depth
+  end;
+  try match goal with
+  | js : JSON |- _ => destruct js
+  end;
+  try intros x Hdec;
+  try match goal with
+  | Hdec : _ = res _ |- _ => cbn in Hdec
+  end;
+  try json_reverse_cleanup;
+  try cbn;
+  try json_reverse_cleanup;
+  try solve_json_equiv.
+
+Ltac derive_jsonifiable_reverse_proof_pure_enum :=
+  intros js x Hdec;
+  destruct js; cbn in Hdec; try discriminate;
+  json_reverse_cleanup; constructor.
+
+Ltac derive_jsonifiable_reverse_proof_norec :=
+  repeat match goal with
+  | |- forall _ : JSON, _ => fail 1
+  | |- forall _ : _, _ => intro
+  end;
+  intros js x Hdec;
+  destruct js; cbn in Hdec; try discriminate;
+  json_reverse_cleanup;
+  cbn;
+  json_reverse_cleanup;
+  solve_json_equiv.
 
 Elpi Command derive.jsonifiable.
 Elpi Accumulate File derive_hook.
